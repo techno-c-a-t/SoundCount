@@ -1,0 +1,28 @@
+# Python Virtual Environment
+venv/
+ENV/
+env/
+
+# Python Cache & Compiled Files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Audio Data & Inputs (Ignore raw music tracks)
+data/input/*
+!data/input/.gitkeep
+
+# Generated Outputs & Generated Analysis Files
+data/output/*
+!data/output/.gitkeep
+visualization/public/analysis.json
+
+# Temporary Scratch Files
+temp.md
+
+# IDE / OS Files
+.DS_Store
+.idea/
+.vscode/

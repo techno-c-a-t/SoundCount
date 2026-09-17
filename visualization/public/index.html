@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SoundCount: Многополосный ЦОС & Piano Tiles Visualizer</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo">
+        <span class="logo-icon">🎵</span>
+        <h1>SoundCount <span class="badge">Piano Tiles & DSP Dashboard</span></h1>
+      </div>
+      <div class="track-meta" id="trackMeta">
+        <span class="meta-item">Загрузка данных...</span>
+      </div>
+    </header>
+
+    <!-- Audio Player Panel -->
+    <section class="player-card">
+      <div class="player-controls">
+        <button id="btnPlayPause" class="btn-primary">▶ Воспроизведение</button>
+        <span class="time-display" id="timeDisplay">00:00.000 / 00:00.000</span>
+      </div>
+      <div class="audio-element-container">
+        <audio id="audioPlayer" controls></audio>
+      </div>
+    </section>
+
+    <!-- NEW SECTION: Piano Gameplay Lanes (Horizontal Scroll Right to Left) -->
+    <section class="card gameplay-card">
+      <div class="card-header">
+        <h2>🎮 Динамический Просмотрчик Ритм-Игры (Piano Tiles Demo)</h2>
+        <p class="subtitle">4 Горизонтальные дорожки. Плитки атак движутся справа налево и вспыхивают на линии нажатия в момент звучания ноты</p>
+      </div>
+      <div class="canvas-wrapper">
+        <canvas id="pianoLanesCanvas" height="220"></canvas>
+      </div>
+    </section>
+
+    <!-- Main Grid: Static vs Dynamic -->
+    <main class="dashboard-grid">
+      <!-- Left Panel: Static Full Analysis (2D Spectrogram + Multi-Band Novelty Curves) -->
+      <section class="card static-panel">
+        <div class="card-header">
+          <h2>📊 Многополосный Спектральный Анализ (Статический)</h2>
+          <p class="subtitle">Кликните по графику для перехода к моменту времени | 3-сек скользящая нормализация</p>
+        </div>
+
+        <div class="canvas-wrapper">
+          <div class="canvas-label">2D CQT Спектрограмма (Разделение на 4 полосы: Bass, Tenor, Alto, Soprano)</div>
+          <canvas id="cqtCanvas" height="200"></canvas>
+        </div>
+
+        <div class="canvas-wrapper">
+          <div class="canvas-label">4 Параллельные Кривые Новизны Spectral Flux (Bass / Tenor / Alto / Soprano)</div>
+          <canvas id="noveltyCanvas" height="160"></canvas>
+        </div>
+      </section>
+
+      <!-- Right Panel: Dynamic Live Frame Slice & Multi-Band Attack Indicators -->
+      <section class="card dynamic-panel">
+        <div class="card-header">
+          <h2>⚡ Динамический Срез Кадра (Real-time 60 FPS)</h2>
+          <p class="subtitle" id="currentFrameText">Фрейм m = 0 | t = 0.000 с</p>
+        </div>
+
+        <div class="canvas-wrapper">
+          <div class="canvas-label">Энергия 84 нот по 4 цветным частотным полосам</div>
+          <canvas id="sliceCanvas" height="220"></canvas>
+        </div>
+
+        <!-- 4 Multi-Band Onset Status Indicators -->
+        <div class="multiband-indicators-grid">
+          <div class="onset-indicator-box band-0" id="indBand0">
+            <span class="indicator-dot"></span>
+            <span class="indicator-text">🔴 Bass</span>
+          </div>
+          <div class="onset-indicator-box band-1" id="indBand1">
+            <span class="indicator-dot"></span>
+            <span class="indicator-text">🟡 Tenor</span>
+          </div>
+          <div class="onset-indicator-box band-2" id="indBand2">
+            <span class="indicator-dot"></span>
+            <span class="indicator-text">🟢 Alto</span>
+          </div>
+          <div class="onset-indicator-box band-3" id="indBand3">
+            <span class="indicator-dot"></span>
+            <span class="indicator-text">🔵 Soprano</span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
