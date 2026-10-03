@@ -97,6 +97,7 @@ let gameAudioCtx = null;
 let gameHighpass1 = null, gameHighpass2 = null;
 let gameLowpass1 = null, gameLowpass2 = null;
 let filterGameLow = 20, filterGameHigh = 11025, isGameFilterActive = false;
+let currentTileSpeedMultiplier = 5.0; // 5x faster tiles by default!
 
 async function initDashboard() {
   try {
@@ -112,6 +113,7 @@ async function initDashboard() {
     setupMetadata();
     setupAudioPlayer();
     setupGameFilterControls();
+    setupSpeedControls();
     buildOffscreenStaticSpectrogram();
     buildOffscreenStaticNovelty();
 
@@ -460,6 +462,18 @@ function setupGameFilterControls() {
   });
 }
 
+function setupSpeedControls() {
+  const speedButtons = document.querySelectorAll('.game-speed-btn');
+  speedButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      speedButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const spd = parseFloat(btn.dataset.speed) || 5.0;
+      currentTileSpeedMultiplier = spd;
+    });
+  });
+}
+
 function setupVibeRecordingControls() {
   if (btnRecMode) {
     btnRecMode.addEventListener('click', toggleVibeRecording);
@@ -636,9 +650,9 @@ function checkTileHit(lane, touchY, height, laneWidth) {
 
   const totalDur = (analysisData && analysisData.metadata && analysisData.metadata.duration_sec) ? analysisData.metadata.duration_sec : 1.0;
   const tRatio = Math.max(0, Math.min(1, curTime / totalDur));
-  const secPerNote = 1.0 - 0.6 * tRatio; // Smoothly accelerates from 1.0s to 0.4s
+  const secPerNote = (1.0 - 0.3 * tRatio) / currentTileSpeedMultiplier;
   const speed = yHit / secPerNote;
-  const maxTileH = 1.5 * laneWidth;
+  const tileHeight = Math.min(55, Math.max(26, laneWidth * 0.40));
 
   let closestNoteIndex = -1;
   let minDistance = 999999;
@@ -647,9 +661,6 @@ function checkTileHit(lane, touchY, height, laneWidth) {
     const note = chart[i];
     if (note.lane !== lane) continue;
     if (noteHitStates[i]) continue; // Already hit
-
-    const dtNext = note.dtNextSameLane || 999.0;
-    const tileHeight = Math.min(maxTileH, dtNext * speed);
 
     const dtStart = note.time - curTime;
     const yCenter = yHit - (dtStart * speed);
@@ -833,12 +844,12 @@ function renderMobilePlayableGame(curTime) {
   const laneWidth = width / 4;
   const yHit = height * 0.50; // Hit Target Line in EXACT CENTER of screen!
 
-  // Dynamic Stream Acceleration: secPerNote decays smoothly from 1.0s (start) to 0.4s (end)
+  // Dynamic Stream Acceleration: secPerNote scaled by currentTileSpeedMultiplier (default 5x)
   const totalDur = (analysisData && analysisData.metadata && analysisData.metadata.duration_sec) ? analysisData.metadata.duration_sec : 1.0;
   const tRatio = Math.max(0, Math.min(1, curTime / totalDur));
-  const secPerNote = 1.0 - 0.6 * tRatio; // Smoothly accelerates from 1.0s to 0.4s
-  const speed = yHit / secPerNote; // Speed increases by 2.5x towards end of track!
-  const maxTileH = 1.5 * laneWidth;
+  const secPerNote = (1.0 - 0.3 * tRatio) / currentTileSpeedMultiplier;
+  const speed = yHit / secPerNote;
+  const tileHeight = Math.min(55, Math.max(26, laneWidth * 0.40));
 
   // 1. Draw 4 Vertical Columns Background
   for (let b = 0; b < 4; b++) {
@@ -878,8 +889,9 @@ function renderMobilePlayableGame(curTime) {
   // 3. Render Falling Notes (Top -> Center Hit Line) - HIDDEN DURING VIBE RECORDING!
   if (!isRecordingVibe && analysisData && analysisData.chart) {
     const chart = analysisData.chart;
-    const minTime = curTime - 0.5;
-    const maxTime = curTime + secPerNote;
+    const dtFallThrough = (height - yHit) / speed;
+    const minTime = curTime - dtFallThrough - 0.15;
+    const maxTime = curTime + secPerNote + 0.15;
 
     for (let i = 0; i < chart.length; i++) {
       if (noteHitStates[i]) continue; // Tile disappeared on hit!
@@ -894,9 +906,6 @@ function renderMobilePlayableGame(curTime) {
       const xLeft = lane * laneWidth + 4;
       const actualTileWidth = laneWidth - 8;
       const color = BAND_COLORS[lane];
-
-      const dtNext = note.dtNextSameLane || 999.0;
-      const tileHeight = Math.min(maxTileH, dtNext * speed);
 
       const dtStart = tStart - curTime;
       const yStart = yHit - (dtStart * speed);
