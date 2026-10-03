@@ -11,6 +11,8 @@
 let analysisData = null;
 let currentFrameIdx = 0;
 let lastAttackTimes = [0, 0, 0, 0];
+let lastGlobalAttackTime = 0;
+const GLOBAL_TRACK_COLOR = '#c084fc';
 let animFrameId = null;
 let viewMode = 'curve'; // 'curve' | 'bars' | 'cqt'
 
@@ -60,6 +62,7 @@ const sliderFhigh = document.getElementById('sliderFhigh');
 const valFlow = document.getElementById('valFlow');
 const valFhigh = document.getElementById('valFhigh');
 
+const indBandGlobal = document.getElementById('indBandGlobal');
 const indBands = [
   document.getElementById('indBand0'),
   document.getElementById('indBand1'),
@@ -307,7 +310,15 @@ async function executeRecomputeRange() {
     buildOffscreenSpectrogramHeatmap();
     setupMetadata();
 
-    // Update 4 indicator badges with new log band titles
+    // Update indicator badges with new log band titles & global track
+    if (indBandGlobal) {
+      const gSpan = indBandGlobal.querySelector('.indicator-text');
+      if (gSpan) {
+        gSpan.textContent = (data.global_track && data.global_track.name) ||
+          (data.metadata && data.metadata.global_band_name) || `🌐 Весь диапазон (${filterLow} — ${filterHigh} Гц)`;
+      }
+    }
+
     if (data.metadata.band_names) {
       data.metadata.band_names.forEach((name, i) => {
         if (indBands[i]) {
@@ -325,11 +336,11 @@ async function executeRecomputeRange() {
     }
 
     if (filterStatsText) {
-      filterStatsText.textContent = `Диапазон: ${filterLow} — ${filterHigh} Гц | 4 дорожки покрывают диапазон логарифмически`;
+      filterStatsText.textContent = `Диапазон: ${filterLow} — ${filterHigh} Гц | 🌐 Глобальная дорожка + 4 логарифмические подполосы`;
     }
 
     if (filterActionHint) {
-      filterActionHint.textContent = `✅ Звук физически обрезан (фильтр 6-го порядка). 4 дорожки распределены логарифмически от ${filterLow} до ${filterHigh} Гц!`;
+      filterActionHint.textContent = `✅ Звук физически обрезан (фильтр 6-го порядка). Глобальная дорожка и 4 подполосы пересчитаны от ${filterLow} до ${filterHigh} Гц!`;
     }
 
     btnApplyRange.className = 'btn-update-range';
@@ -352,7 +363,7 @@ function resizeCanvases() {
 
   if (rawBandsCanvas) {
     rawBandsCanvas.width = containerWidth;
-    rawBandsCanvas.height = 200;
+    rawBandsCanvas.height = 250; // 50px per lane * 5 lanes (1 global + 4 sub-bands)
   }
   if (cqtCanvas) {
     cqtCanvas.width = containerWidth;
@@ -360,7 +371,7 @@ function resizeCanvases() {
   }
   if (noveltyCanvas) {
     noveltyCanvas.width = containerWidth;
-    noveltyCanvas.height = 150;
+    noveltyCanvas.height = 200; // 40px per lane * 5 lanes (1 global + 4 sub-bands)
   }
   if (sliceCanvas && sliceCanvas.parentElement) {
     sliceCanvas.width = sliceCanvas.parentElement.clientWidth;
@@ -380,9 +391,27 @@ function setupMetadata() {
     <span class="meta-tag">🎵 ${meta.title}</span>
     <span class="meta-tag">⏱ ${meta.duration_sec}с</span>
     <span class="meta-tag">📡 ${meta.sample_rate} Гц</span>
+    <span class="meta-tag">🌐 Глобальная дорожка всего диапазона</span>
     <span class="meta-tag">⚡ 512 полос Фурье (FFT)</span>
     <span class="meta-tag">🎛️ Фильтр Баттерворта 6-го порядка</span>
   `;
+
+  if (indBandGlobal) {
+    const gSpan = indBandGlobal.querySelector('.indicator-text');
+    if (gSpan) {
+      gSpan.textContent = (analysisData.global_track && analysisData.global_track.name) ||
+        (meta && meta.global_band_name) || `🌐 Весь диапазон (${filterLow} — ${filterHigh} Гц)`;
+    }
+  }
+
+  if (meta.band_names) {
+    meta.band_names.forEach((name, i) => {
+      if (indBands[i]) {
+        const txtSpan = indBands[i].querySelector('.indicator-text');
+        if (txtSpan) txtSpan.textContent = name;
+      }
+    });
+  }
 }
 
 function setupAudioPlayer() {
@@ -557,31 +586,51 @@ function renderRawBandsVisualization(curTime, xHit, lookaheadSec) {
 
   rawCtx.clearRect(0, 0, width, height);
 
-  const laneHeight = height / 4;
+  const TOTAL_LANES = 5;
+  const laneHeight = height / TOTAL_LANES;
   const nowMs = performance.now();
+  let isGlobalHit = false;
   const activeHits = [false, false, false, false];
 
   const minTime = curTime - (xHit / (width - xHit)) * lookaheadSec;
   const maxTime = curTime + lookaheadSec;
 
   const bandNames = (analysisData.metadata && analysisData.metadata.band_names) || DEFAULT_BAND_NAMES;
+  const globalTrackName = (analysisData.global_track && analysisData.global_track.name) ||
+    (analysisData.metadata && analysisData.metadata.global_band_name) ||
+    `🌐 Весь диапазон (${filterLow} — ${filterHigh} Гц)`;
 
-  // Draw 4 Horizontal Lanes Background
-  for (let b = 0; b < 4; b++) {
-    const yTop = b * laneHeight;
-    const color = BAND_COLORS[b];
+  // Draw 5 Horizontal Lanes Background
+  for (let lane = 0; lane < TOTAL_LANES; lane++) {
+    const yTop = lane * laneHeight;
 
-    rawCtx.fillStyle = (b % 2 === 0) ? 'rgba(15, 23, 42, 0.85)' : 'rgba(30, 41, 59, 0.55)';
-    rawCtx.fillRect(0, yTop, width, laneHeight);
+    if (lane === 0) {
+      // Global track background & label
+      rawCtx.fillStyle = 'rgba(88, 28, 135, 0.28)';
+      rawCtx.fillRect(0, yTop, width, laneHeight);
 
-    rawCtx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    rawCtx.lineWidth = 1;
-    rawCtx.strokeRect(0, yTop, width, laneHeight);
+      rawCtx.strokeStyle = 'rgba(192, 132, 252, 0.25)';
+      rawCtx.lineWidth = 1;
+      rawCtx.strokeRect(0, yTop, width, laneHeight);
 
-    // Dynamic band title with exact logarithmic Hz bounds!
-    rawCtx.fillStyle = color;
-    rawCtx.font = '700 11px "JetBrains Mono", monospace';
-    rawCtx.fillText(bandNames[b] || `Полоса ${b+1}`, 8, yTop + laneHeight / 2 + 4);
+      rawCtx.fillStyle = GLOBAL_TRACK_COLOR;
+      rawCtx.font = '700 11px "JetBrains Mono", monospace';
+      rawCtx.fillText(globalTrackName, 8, yTop + laneHeight / 2 + 4);
+    } else {
+      const b = lane - 1;
+      const color = BAND_COLORS[b];
+
+      rawCtx.fillStyle = (b % 2 === 0) ? 'rgba(15, 23, 42, 0.85)' : 'rgba(30, 41, 59, 0.55)';
+      rawCtx.fillRect(0, yTop, width, laneHeight);
+
+      rawCtx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+      rawCtx.lineWidth = 1;
+      rawCtx.strokeRect(0, yTop, width, laneHeight);
+
+      rawCtx.fillStyle = color;
+      rawCtx.font = '700 11px "JetBrains Mono", monospace';
+      rawCtx.fillText(bandNames[b] || `Полоса ${b+1}`, 8, yTop + laneHeight / 2 + 4);
+    }
   }
 
   // Draw Vertical Hit Target Line
@@ -592,13 +641,41 @@ function renderRawBandsVisualization(curTime, xHit, lookaheadSec) {
   rawCtx.lineTo(xHit, height);
   rawCtx.stroke();
 
-  // Render Pure Sprint 1 DSP Onset Peaks
+  // 1. Render Global Track Attacks (Lane 0)
+  const globalPeaks = (analysisData.global_track && analysisData.global_track.peaks_sec) ||
+    analysisData.peaks_sec || [];
+  const yCenterGlobal = laneHeight / 2;
+
+  for (let i = 0; i < globalPeaks.length; i++) {
+    const tPeak = globalPeaks[i];
+    if (tPeak < minTime || tPeak > maxTime) continue;
+
+    const dt = tPeak - curTime;
+    const xPos = xHit + (dt / lookaheadSec) * (width - xHit);
+
+    if (dt >= -0.05 && dt <= 0.06) {
+      isGlobalHit = true;
+      lastGlobalAttackTime = nowMs;
+    }
+
+    if (xPos >= xHit - 15 && xPos <= width + 15) {
+      rawCtx.fillStyle = GLOBAL_TRACK_COLOR;
+      rawCtx.beginPath();
+      rawCtx.arc(xPos, yCenterGlobal, 8.5, 0, Math.PI * 2);
+      rawCtx.fill();
+      rawCtx.strokeStyle = '#ffffff';
+      rawCtx.lineWidth = 1.8;
+      rawCtx.stroke();
+    }
+  }
+
+  // 2. Render 4 Log Sub-Band Attacks (Lanes 1 to 4)
   if (analysisData.multiband && analysisData.multiband.peaks_sec_bands) {
     const peaksBands = analysisData.multiband.peaks_sec_bands;
 
     for (let b = 0; b < 4; b++) {
       const bandPeaks = peaksBands[b] || [];
-      const yCenter = b * laneHeight + laneHeight / 2;
+      const yCenter = (b + 1) * laneHeight + laneHeight / 2;
       const color = BAND_COLORS[b];
 
       for (let i = 0; i < bandPeaks.length; i++) {
@@ -626,7 +703,14 @@ function renderRawBandsVisualization(curTime, xHit, lookaheadSec) {
     }
   }
 
-  // Update Band Indicator Badges
+  // Update Global Indicator Badge
+  if (indBandGlobal) {
+    const isGlobalActive = isGlobalHit || (nowMs - lastGlobalAttackTime < 120);
+    if (isGlobalActive && !indBandGlobal.classList.contains('active')) indBandGlobal.classList.add('active');
+    else if (!isGlobalActive && indBandGlobal.classList.contains('active')) indBandGlobal.classList.remove('active');
+  }
+
+  // Update 4 Sub-Band Indicator Badges
   for (let b = 0; b < 4; b++) {
     const isHitActive = activeHits[b] || (nowMs - lastAttackTimes[b] < 120);
     const indBox = indBands[b];
@@ -732,69 +816,106 @@ function renderSlidingNovelty(curTime, xHit, lookaheadSec) {
 
   const sfBands = analysisData.multiband.sf_bands;
   const thBands = analysisData.multiband.thresholds_bands;
-  const bandHeight = height / 4;
+  const TOTAL_NOVELTY_LANES = 5;
+  const bandHeight = height / TOTAL_NOVELTY_LANES;
+
   const bandNames = (analysisData.metadata && analysisData.metadata.band_names) || DEFAULT_BAND_NAMES;
+  const globalTrackName = (analysisData.global_track && analysisData.global_track.name) ||
+    (analysisData.metadata && analysisData.metadata.global_band_name) ||
+    `🌐 Весь диапазон (${filterLow} — ${filterHigh} Гц)`;
 
-  for (let b = 0; b < 4; b++) {
-    const yOffset = b * bandHeight;
-    const color = BAND_COLORS[b];
+  const sfBands = analysisData.multiband ? analysisData.multiband.sf_bands : null;
+  const thBands = analysisData.multiband ? analysisData.multiband.thresholds_bands : null;
 
-    // Background lane
-    noveltyCtx.fillStyle = (b % 2 === 0) ? 'rgba(15, 23, 42, 0.75)' : 'rgba(30, 41, 59, 0.45)';
-    noveltyCtx.fillRect(0, yOffset, width, bandHeight);
+  const globalSf = (analysisData.global_track && analysisData.global_track.sf) ||
+    analysisData.spectral_flux || [];
+  const globalTh = (analysisData.global_track && analysisData.global_track.threshold) ||
+    analysisData.threshold || [];
 
-    noveltyCtx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    noveltyCtx.lineWidth = 1;
-    noveltyCtx.strokeRect(0, yOffset, width, bandHeight);
+  for (let lane = 0; lane < TOTAL_NOVELTY_LANES; lane++) {
+    const yOffset = lane * bandHeight;
+    let label = '';
+    let color = '';
+    let sfArray = null;
+    let thArray = null;
+
+    if (lane === 0) {
+      label = globalTrackName;
+      color = GLOBAL_TRACK_COLOR;
+      sfArray = globalSf;
+      thArray = globalTh;
+
+      noveltyCtx.fillStyle = 'rgba(88, 28, 135, 0.20)';
+      noveltyCtx.fillRect(0, yOffset, width, bandHeight);
+      noveltyCtx.strokeStyle = 'rgba(192, 132, 252, 0.2)';
+      noveltyCtx.lineWidth = 1;
+      noveltyCtx.strokeRect(0, yOffset, width, bandHeight);
+    } else {
+      const b = lane - 1;
+      label = bandNames[b] || `Полоса ${b + 1}`;
+      color = BAND_COLORS[b];
+      sfArray = sfBands ? sfBands[b] : [];
+      thArray = thBands ? thBands[b] : [];
+
+      noveltyCtx.fillStyle = (b % 2 === 0) ? 'rgba(15, 23, 42, 0.75)' : 'rgba(30, 41, 59, 0.45)';
+      noveltyCtx.fillRect(0, yOffset, width, bandHeight);
+      noveltyCtx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+      noveltyCtx.lineWidth = 1;
+      noveltyCtx.strokeRect(0, yOffset, width, bandHeight);
+    }
 
     // Label
     noveltyCtx.fillStyle = color;
     noveltyCtx.font = '700 10px "JetBrains Mono", monospace';
-    noveltyCtx.fillText(bandNames[b] || `Полоса ${b+1}`, 8, yOffset + 14);
+    noveltyCtx.fillText(label, 8, yOffset + 13);
 
     // Draw Novelty Curve
-    noveltyCtx.beginPath();
-    noveltyCtx.strokeStyle = color;
-    noveltyCtx.lineWidth = 1.6;
+    if (sfArray && sfArray.length > 0) {
+      noveltyCtx.beginPath();
+      noveltyCtx.strokeStyle = color;
+      noveltyCtx.lineWidth = (lane === 0) ? 1.8 : 1.5;
 
-    let firstPoint = true;
-    for (let f = fStart; f <= fEnd; f++) {
-      const t = f * hopSec;
-      const x = xHit + ((t - curTime) / lookaheadSec) * (width - xHit);
-      const val = sfBands[b][f] || 0;
-      const y = yOffset + bandHeight - (val * (bandHeight - 6));
+      let firstPoint = true;
+      for (let f = fStart; f <= fEnd; f++) {
+        const t = f * hopSec;
+        const x = xHit + ((t - curTime) / lookaheadSec) * (width - xHit);
+        const val = sfArray[f] || 0;
+        const y = yOffset + bandHeight - (val * (bandHeight - 6));
 
-      if (firstPoint) {
-        noveltyCtx.moveTo(x, y);
-        firstPoint = false;
-      } else {
-        noveltyCtx.lineTo(x, y);
+        if (firstPoint) {
+          noveltyCtx.moveTo(x, y);
+          firstPoint = false;
+        } else {
+          noveltyCtx.lineTo(x, y);
+        }
       }
+      noveltyCtx.stroke();
     }
-    noveltyCtx.stroke();
 
     // Draw Dynamic Adaptive Threshold (Dashed Red Line)
-    noveltyCtx.beginPath();
-    noveltyCtx.strokeStyle = '#f43f5e';
-    noveltyCtx.lineWidth = 1.0;
-    noveltyCtx.setLineDash([3, 3]);
+    if (thArray && thArray.length > 0) {
+      noveltyCtx.beginPath();
+      noveltyCtx.strokeStyle = '#f43f5e';
+      noveltyCtx.lineWidth = 1.0;
+      noveltyCtx.setLineDash([3, 3]);
 
-    firstPoint = true;
-    for (let f = fStart; f <= fEnd; f++) {
-      const t = f * hopSec;
-      const x = xHit + ((t - curTime) / lookaheadSec) * (width - xHit);
-      const th = thBands[b][f] || 0;
-      const y = yOffset + bandHeight - (th * (bandHeight - 6));
+      let firstPoint = true;
+      for (let f = fStart; f <= fEnd; f++) {
+        const t = f * hopSec;
+        const x = xHit + ((t - curTime) / lookaheadSec) * (width - xHit);
+        const th = thArray[f] || 0;
+        const y = yOffset + bandHeight - (th * (bandHeight - 6));
 
-      if (firstPoint) {
-        noveltyCtx.moveTo(x, y);
-        firstPoint = false;
-      } else {
-        noveltyCtx.lineTo(x, y);
+        if (firstPoint) {
+          noveltyCtx.moveTo(x, y);
+          firstPoint = false;
+        } else {
+          noveltyCtx.lineTo(x, y);
+        }
       }
+      noveltyCtx.stroke();
+      noveltyCtx.setLineDash([]);
     }
-    noveltyCtx.stroke();
-    noveltyCtx.setLineDash([]);
   }
 
   // Draw Vertical Hit Target Line (Matching X = 95px)

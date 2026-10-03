@@ -90,6 +90,8 @@ def recompute_dsp_for_range(f_low: float = 30.0, f_high: float = 2000.0, audio_f
         f_end = frequencies[e_bin]
         band_names.append(f"{color_emojis[b]} Полоса {b+1} ({f_start:.0f} — {f_end:.0f} Гц)")
 
+    global_name = f"🌐 Весь диапазон ({frequencies[0]:.0f} — {frequencies[-1]:.0f} Гц)"
+
     # Prepare serializable response
     return {
         "status": "ok",
@@ -106,15 +108,25 @@ def recompute_dsp_for_range(f_low: float = 30.0, f_high: float = 2000.0, audio_f
             "audio_filename": audio_name,
             "n_bands": 4,
             "band_names": band_names,
-            "band_ranges": band_ranges
+            "band_ranges": band_ranges,
+            "global_band_name": global_name
         },
         "frequencies": np.round(frequencies, 1).tolist(),
         "times": np.round(times, 3).tolist(),
         "spectrogram_db": np.round(S_db, 2).tolist(),
+        "global_track": {
+            "name": global_name,
+            "f_start": round(float(frequencies[0]), 1),
+            "f_end": round(float(frequencies[-1]), 1),
+            "sf": np.round(mb_data["global_sf"], 4).tolist(),
+            "threshold": np.round(mb_data["global_threshold"], 4).tolist(),
+            "peaks_sec": np.round(mb_data["global_peaks_sec"], 3).tolist()
+        },
         "multiband": {
             "sf_bands": np.round(mb_data["sf_bands"], 4).tolist(),
             "thresholds_bands": np.round(mb_data["thresholds_bands"], 4).tolist(),
             "peaks_sec_bands": [np.round(p, 3).tolist() for p in mb_data["peaks_sec_bands"]],
-            "merged_peaks_sec": np.round(mb_data["merged_peaks_sec"], 3).tolist()
+            "merged_peaks_sec": np.round(mb_data["merged_peaks_sec"], 3).tolist(),
+            "global_peaks_sec": np.round(mb_data["global_peaks_sec"], 3).tolist()
         }
     }

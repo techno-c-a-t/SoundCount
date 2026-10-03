@@ -140,11 +140,20 @@ def export_analysis_to_json(audio_path: str, output_json_path: str) -> str:
         "complex_domain": cd_norm_list,
         "cd_peaks_sec": cd_peaks_sec_list,
         "blocked_bins": blocked_bins_list,
+        "global_track": {
+            "name": f"🌐 Весь диапазон ({frequencies[0]:.0f} — {frequencies[-1]:.0f} Гц)",
+            "f_start": round(float(frequencies[0]), 1),
+            "f_end": round(float(frequencies[-1]), 1),
+            "sf": np.round(mb_data["global_sf"], 4).tolist(),
+            "threshold": np.round(mb_data["global_threshold"], 4).tolist(),
+            "peaks_sec": np.round(mb_data["global_peaks_sec"], 3).tolist()
+        },
         "multiband": {
             "sf_bands": sf_bands_list,
             "thresholds_bands": thresholds_bands_list,
             "peaks_sec_bands": peaks_sec_bands_list,
-            "merged_peaks_sec": merged_peaks_sec_list
+            "merged_peaks_sec": merged_peaks_sec_list,
+            "global_peaks_sec": np.round(mb_data["global_peaks_sec"], 3).tolist()
         },
         "chart": chart
     }

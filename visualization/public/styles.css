@@ -276,12 +276,18 @@ body.math-mode-body {
 
 canvas { width: 100%; background: #020617; border: 1px solid var(--border-color); border-radius: 8px; }
 
-.multiband-indicators-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-.onset-indicator-box { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.75rem; }
-.indicator-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); }
+.multiband-indicators-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.5rem; }
+.onset-indicator-box { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.75rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.75rem; transition: all 0.15s ease; }
+.indicator-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); transition: all 0.15s ease; }
+.band-global.active { background: rgba(168, 85, 247, 0.22); border-color: #a855f7; box-shadow: 0 0 12px rgba(168, 85, 247, 0.35); }
+.band-global.active .indicator-dot { background: #a855f7; box-shadow: 0 0 8px #a855f7; }
+.band-0.active { background: rgba(239, 68, 68, 0.15); border-color: var(--color-band-0); }
 .band-0.active .indicator-dot { background: var(--color-band-0); box-shadow: 0 0 8px var(--color-band-0); }
+.band-1.active { background: rgba(245, 158, 11, 0.15); border-color: var(--color-band-1); }
 .band-1.active .indicator-dot { background: var(--color-band-1); box-shadow: 0 0 8px var(--color-band-1); }
+.band-2.active { background: rgba(16, 185, 129, 0.15); border-color: var(--color-band-2); }
 .band-2.active .indicator-dot { background: var(--color-band-2); box-shadow: 0 0 8px var(--color-band-2); }
+.band-3.active { background: rgba(59, 130, 246, 0.15); border-color: var(--color-band-3); }
 .band-3.active .indicator-dot { background: var(--color-band-3); box-shadow: 0 0 8px var(--color-band-3); }
 
 /* Vibe Recording Mode UI Controls */

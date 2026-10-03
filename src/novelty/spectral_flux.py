@@ -93,7 +93,24 @@ def compute_multiband_spectral_flux(
         thresholds_bands[b, :] = band_peak_data["threshold"]
         peaks_sec_bands.append(band_peak_data["peaks_sec"].tolist())
 
-    # Merge all band peaks into global peaks with 40ms debouncing
+    # 5. Global Spectral Flux across all active frequency bins
+    # Computes global attacks for the entire frequency-clipped spectrum using the exact same DSP pipeline
+    global_raw_flux = np.sum(relu_diff, axis=0)
+    global_sf_norm = np.zeros(n_frames)
+    for m in range(n_frames):
+        w_start = max(0, m - half_win_frames)
+        w_end = min(n_frames, m + half_win_frames + 1)
+        local_max = np.max(global_raw_flux[w_start:w_end])
+        if local_max > 0:
+            global_sf_norm[m] = global_raw_flux[m] / local_max
+        else:
+            global_sf_norm[m] = 0.0
+
+    global_peak_data = pick_peaks(global_sf_norm, times)
+    global_threshold = global_peak_data["threshold"]
+    global_peaks_sec = global_peak_data["peaks_sec"].tolist()
+
+    # Merge all band peaks into global peaks with 40ms debouncing (multi-band union)
     all_peaks = []
     for p_list in peaks_sec_bands:
         all_peaks.extend(p_list)
@@ -111,7 +128,11 @@ def compute_multiband_spectral_flux(
         "sf_bands": sf_bands_norm,
         "thresholds_bands": thresholds_bands,
         "peaks_sec_bands": peaks_sec_bands,
-        "merged_peaks_sec": merged_peaks
+        "merged_peaks_sec": merged_peaks,
+        # Global track for the entire clipped spectrum
+        "global_sf": global_sf_norm,
+        "global_threshold": global_threshold,
+        "global_peaks_sec": global_peaks_sec
     }
 
 

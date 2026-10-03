@@ -94,14 +94,14 @@
     <!-- 📊 SYNCHRONIZED SLIDING TIMELINE STACK -->
 
     
-    <!-- 1. 4 Parallel Raw Spectral Flux Bands (Onsets) -->
+    <!-- 1. Global + 4 Parallel Raw Spectral Flux Bands (Onsets) -->
     <section class="card raw-bands-card">
       <div class="card-header">
-        <h2>📊 1. 4 Параллельные Частотные Дорожки (Чистый Spectral Flux)</h2>
-        <p class="subtitle">Скользящее окно времени: маркер воспроизведения на X = 95px | Без игровых фильтров и коридорной блокировки</p>
+        <h2>📊 1. Глобальная и 4 Параллельные Частотные Дорожки (Чистый Spectral Flux)</h2>
+        <p class="subtitle">🌐 Глобальная дорожка всего обрезанного диапазона + 4 логарифмические подполосы | Маркер на X = 95px</p>
       </div>
       <div class="canvas-wrapper">
-        <canvas id="rawBandsCanvas" height="200"></canvas>
+        <canvas id="rawBandsCanvas" height="250"></canvas>
       </div>
     </section>
 
@@ -116,14 +116,14 @@
       </div>
     </section>
 
-    <!-- 3. Synchronized 4-Band Spectral Flux Novelty Curves -->
+    <!-- 3. Synchronized Spectral Flux Novelty Curves -->
     <section class="card novelty-card">
       <div class="card-header">
-        <h2>📈 3. Скользящие Кривые Новизны Spectral Flux (Bass / Tenor / Alto / Soprano)</h2>
-        <p class="subtitle">Мгновенный темп изменения спектральной энергии (производная с полуволновым выпрямлением ReLU)</p>
+        <h2>📈 3. Скользящие Кривые Новизны Spectral Flux (Глобальная + 4 Поддиапазона)</h2>
+        <p class="subtitle">🌐 Глобальная кривая всего диапазона + 4 логарифмические подполосы | Мгновенный темп изменения энергии ReLU</p>
       </div>
       <div class="canvas-wrapper">
-        <canvas id="noveltyCanvas" height="150"></canvas>
+        <canvas id="noveltyCanvas" height="200"></canvas>
       </div>
     </section>
 
@@ -167,8 +167,12 @@
         <span id="fftFpsTag" class="badge">⚡ 60 FPS FFT</span>
       </div>
 
-      <!-- 4 Multi-Band Onset Status Indicators -->
+      <!-- Global + 4 Multi-Band Onset Status Indicators -->
       <div class="multiband-indicators-grid">
+        <div class="onset-indicator-box band-global" id="indBandGlobal">
+          <span class="indicator-dot"></span>
+          <span class="indicator-text">🌐 Весь диапазон</span>
+        </div>
         <div class="onset-indicator-box band-0" id="indBand0">
           <span class="indicator-dot"></span>
           <span class="indicator-text">🔴 Bass (32 — 130 Гц)</span>
