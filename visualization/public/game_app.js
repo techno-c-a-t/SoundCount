@@ -652,7 +652,8 @@ function checkTileHit(lane, touchY, height, laneWidth) {
   const tRatio = Math.max(0, Math.min(1, curTime / totalDur));
   const secPerNote = (1.0 - 0.3 * tRatio) / currentTileSpeedMultiplier;
   const speed = yHit / secPerNote;
-  const tileHeight = Math.min(55, Math.max(26, laneWidth * 0.40));
+  // 🎹 Tile Height: exactly ~5 tiles fit vertically on the screen (height / 5.2), regardless of speed
+  const tileHeight = height / 5.2;
 
   let closestNoteIndex = -1;
   let minDistance = 999999;
@@ -670,7 +671,7 @@ function checkTileHit(lane, touchY, height, laneWidth) {
     const absTimeDiff = Math.abs(dtStart);
 
     // Hybrid check: direct touch on falling tile OR time window near hit line (|dt| <= 160ms)
-    const isTouchOnTile = (touchY >= yTop - 35 && touchY <= yBottom + 35) || (absTimeDiff <= 0.160);
+    const isTouchOnTile = (touchY >= yTop - 30 && touchY <= yBottom + 30) || (absTimeDiff <= 0.160);
 
     if (isTouchOnTile) {
       if (absTimeDiff < minDistance) {
@@ -849,7 +850,8 @@ function renderMobilePlayableGame(curTime) {
   const tRatio = Math.max(0, Math.min(1, curTime / totalDur));
   const secPerNote = (1.0 - 0.3 * tRatio) / currentTileSpeedMultiplier;
   const speed = yHit / secPerNote;
-  const tileHeight = Math.min(55, Math.max(26, laneWidth * 0.40));
+  // 🎹 Tile Height: exactly ~5 tiles fit vertically on the screen (height / 5.2), regardless of speed
+  const tileHeight = height / 5.2;
 
   // 1. Draw 4 Vertical Columns Background
   for (let b = 0; b < 4; b++) {
@@ -889,9 +891,10 @@ function renderMobilePlayableGame(curTime) {
   // 3. Render Falling Notes (Top -> Center Hit Line) - HIDDEN DURING VIBE RECORDING!
   if (!isRecordingVibe && analysisData && analysisData.chart) {
     const chart = analysisData.chart;
-    const dtFallThrough = (height - yHit) / speed;
-    const minTime = curTime - dtFallThrough - 0.15;
-    const maxTime = curTime + secPerNote + 0.15;
+    const dtFallThrough = (height - yHit + tileHeight) / speed;
+    const dtLookahead = (yHit + tileHeight) / speed;
+    const minTime = curTime - dtFallThrough - 0.1;
+    const maxTime = curTime + dtLookahead + 0.1;
 
     for (let i = 0; i < chart.length; i++) {
       if (noteHitStates[i]) continue; // Tile disappeared on hit!
@@ -949,30 +952,39 @@ function renderMobilePlayableGame(curTime) {
 }
 
 /**
- * Draws vertical piano tile with height = 2x width, sleek gradient, rounded corners & inner glow
+ * Draws vertical piano tile with height = height / 5.2 (4-5 tiles per screen), sleek gradient & rounded corners
  */
 function drawVerticalTilePill(ctx, x, y, width, height, color) {
   ctx.save();
 
-  // Gradient fill
+  // Gradient fill: glossy, vibrant piano tile
   const grad = ctx.createLinearGradient(x, y, x, y + height);
   grad.addColorStop(0, '#ffffff');
-  grad.addColorStop(0.2, color);
+  grad.addColorStop(0.12, color);
+  grad.addColorStop(0.85, color);
   grad.addColorStop(1.0, color + 'cc');
 
   ctx.fillStyle = grad;
   ctx.beginPath();
-  ctx.roundRect(x, y, width, height, 8);
+  if (ctx.roundRect) {
+    ctx.roundRect(x, y, width, height, 10);
+  } else {
+    ctx.rect(x, y, width, height);
+  }
   ctx.fill();
 
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  // Inner glowing core dot
-  ctx.fillStyle = '#ffffff';
+  // Bottom piano key accent bar
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
   ctx.beginPath();
-  ctx.arc(x + width / 2, y + height / 2, Math.min(8, width / 6), 0, Math.PI * 2);
+  if (ctx.roundRect) {
+    ctx.roundRect(x + 8, y + height - 12, width - 16, 5, 2);
+  } else {
+    ctx.rect(x + 8, y + height - 12, width - 16, 5);
+  }
   ctx.fill();
 
   ctx.restore();
