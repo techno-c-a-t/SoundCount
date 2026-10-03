@@ -24,7 +24,7 @@ def generate_piano_chart_from_global_beat(
     frequencies: np.ndarray,
     S: np.ndarray = None,
     n_lanes: int = 4,
-    min_dt_debounce: float = 0.080,
+    min_dt_debounce: float = 0.065,
     rapid_dt_threshold: float = 0.220,
     chord_min_gap: float = 0.250
 ) -> list[dict]:

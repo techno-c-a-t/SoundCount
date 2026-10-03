@@ -97,7 +97,21 @@ let gameAudioCtx = null;
 let gameHighpass1 = null, gameHighpass2 = null;
 let gameLowpass1 = null, gameLowpass2 = null;
 let filterGameLow = 20, filterGameHigh = 11025, isGameFilterActive = false;
-let currentTileSpeedMultiplier = 5.0; // 5x faster tiles by default!
+
+// ⚡ Speed Configuration: Smooth progression 2.0x at start -> 3.5x at end
+let speedMode = 'dynamic';
+let fixedTileSpeedMultiplier = 2.75;
+const gameSpeedLbl = document.getElementById('gameSpeedLbl');
+
+function getCurrentSpeedMultiplier(curTime) {
+  if (speedMode === 'dynamic') {
+    const totalDur = (analysisData && analysisData.metadata && analysisData.metadata.duration_sec) ? analysisData.metadata.duration_sec : 1.0;
+    const tRatio = Math.max(0, Math.min(1, curTime / totalDur));
+    // Smooth progression: 2.0x at the start -> 3.5x at the end
+    return 2.0 + 1.5 * tRatio;
+  }
+  return fixedTileSpeedMultiplier;
+}
 
 async function initDashboard() {
   try {
@@ -148,10 +162,11 @@ function rebuildPianoChartFromGlobalBeat() {
   const nFrames = (analysisData.metadata && analysisData.metadata.n_frames) || (sfBands ? sfBands[0].length : 1000);
   const frequencies = analysisData.frequencies || [];
 
-  const minDtDebounce = 0.080;
+  // Higher sensitivity: 65ms debounce captures rapid 16th-note syncopations
+  const minDtDebounce = 0.065;
   const rapidDtThreshold = 0.220;
 
-  // Step 1: Debounce acoustic flutter (< 80ms)
+  // Step 1: Debounce acoustic flutter (< 65ms)
   const debouncedPeaks = [];
   for (let i = 0; i < globalPeaks.length; i++) {
     const p = globalPeaks[i];
@@ -468,8 +483,13 @@ function setupSpeedControls() {
     btn.addEventListener('click', () => {
       speedButtons.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
-      const spd = parseFloat(btn.dataset.speed) || 5.0;
-      currentTileSpeedMultiplier = spd;
+      const val = btn.dataset.speed;
+      if (val === 'dynamic') {
+        speedMode = 'dynamic';
+      } else {
+        speedMode = 'fixed';
+        fixedTileSpeedMultiplier = parseFloat(val) || 2.75;
+      }
     });
   });
 }
@@ -648,9 +668,8 @@ function checkTileHit(lane, touchY, height, laneWidth) {
   const curTime = audioPlayer.currentTime || 0;
   const yHit = height * 0.50; // Hit Target Line in EXACT CENTER of screen!
 
-  const totalDur = (analysisData && analysisData.metadata && analysisData.metadata.duration_sec) ? analysisData.metadata.duration_sec : 1.0;
-  const tRatio = Math.max(0, Math.min(1, curTime / totalDur));
-  const secPerNote = (1.0 - 0.3 * tRatio) / currentTileSpeedMultiplier;
+  const speedMultiplier = getCurrentSpeedMultiplier(curTime);
+  const secPerNote = 1.0 / speedMultiplier;
   const speed = yHit / secPerNote;
   // 🎹 Tile Height: exactly ~5 tiles fit vertically on the screen (height / 5.2), regardless of speed
   const tileHeight = height / 5.2;
@@ -670,8 +689,10 @@ function checkTileHit(lane, touchY, height, laneWidth) {
 
     const absTimeDiff = Math.abs(dtStart);
 
-    // Hybrid check: direct touch on falling tile OR time window near hit line (|dt| <= 160ms)
-    const isTouchOnTile = (touchY >= yTop - 30 && touchY <= yBottom + 30) || (absTimeDiff <= 0.160);
+    // High Sensitivity Touch Detection:
+    // 1) Direct touch anywhere on tile with generous padding (±50px)
+    // 2) Wide timing window near target line (|dt| <= 220ms)
+    const isTouchOnTile = (touchY >= yTop - 50 && touchY <= yBottom + 50) || (absTimeDiff <= 0.220);
 
     if (isTouchOnTile) {
       if (absTimeDiff < minDistance) {
@@ -689,10 +710,10 @@ function checkTileHit(lane, touchY, height, laneWidth) {
 
     let scoreAdd = 100;
     let ratingText = "+100 PERFECT!";
-    if (dtHit <= 0.065) {
+    if (dtHit <= 0.085) {
       scoreAdd = 100;
       ratingText = "+100 PERFECT!";
-    } else if (dtHit <= 0.125) {
+    } else if (dtHit <= 0.160) {
       scoreAdd = 70;
       ratingText = "+70 GREAT!";
     } else {
@@ -844,14 +865,20 @@ function renderMobilePlayableGame(curTime) {
 
   const laneWidth = width / 4;
   const yHit = height * 0.50; // Hit Target Line in EXACT CENTER of screen!
-
-  // Dynamic Stream Acceleration: secPerNote scaled by currentTileSpeedMultiplier (default 5x)
-  const totalDur = (analysisData && analysisData.metadata && analysisData.metadata.duration_sec) ? analysisData.metadata.duration_sec : 1.0;
-  const tRatio = Math.max(0, Math.min(1, curTime / totalDur));
-  const secPerNote = (1.0 - 0.3 * tRatio) / currentTileSpeedMultiplier;
+  const speedMultiplier = getCurrentSpeedMultiplier(curTime);
+  const secPerNote = 1.0 / speedMultiplier;
   const speed = yHit / secPerNote;
   // 🎹 Tile Height: exactly ~5 tiles fit vertically on the screen (height / 5.2), regardless of speed
   const tileHeight = height / 5.2;
+
+  // Live dynamic HUD speed text
+  if (gameSpeedLbl && frameCount % 6 === 0) {
+    if (speedMode === 'dynamic') {
+      gameSpeedLbl.textContent = `⚡ Скорость: ${speedMultiplier.toFixed(2)}x (2x➔3.5x)`;
+    } else {
+      gameSpeedLbl.textContent = `⚡ Скорость: ${speedMultiplier.toFixed(1)}x`;
+    }
+  }
 
   // 1. Draw 4 Vertical Columns Background
   for (let b = 0; b < 4; b++) {

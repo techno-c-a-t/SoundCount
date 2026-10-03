@@ -181,7 +181,10 @@ if __name__ == "__main__":
         input_dir = os.path.join(PROJECT_ROOT, "data", "input")
         os.makedirs(input_dir, exist_ok=True)
         files = [os.path.join(input_dir, f) for f in os.listdir(input_dir) if f.endswith(('.mp3', '.m4a', '.wav'))]
-        if files:
+        test_music = [f for f in files if os.path.basename(f) == "test_music.mp3"]
+        if test_music:
+            input_file = test_music[0]
+        elif files:
             input_file = files[0]
         else:
             input_file = create_synthetic_demo_audio()

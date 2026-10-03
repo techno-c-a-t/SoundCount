@@ -7,7 +7,7 @@ CQT_BINS = 84            # 7 octaves x 12 semitones (MIDI 24/C1 to MIDI 107/B7)
 BINS_PER_OCTAVE = 12     # 12 semitones per octave
 FMIN = 32.70             # Frequency of C1 note in Hz
 
-# Adaptive Peak Picker Defaults
-PEAK_ALPHA = 1.0         # Standard deviation multiplier
-PEAK_BETA = 0.05         # Constant offset multiplier
+# Adaptive Peak Picker Defaults (Higher sensitivity for fine rhythmic attacks)
+PEAK_ALPHA = 0.85        # Standard deviation multiplier
+PEAK_BETA = 0.035        # Constant offset multiplier
 PEAK_WIN_SIZE = 9        # Moving window size for local median/mean
