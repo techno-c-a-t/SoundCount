@@ -1,13 +1,15 @@
 /**
  * SoundCount Pure Sprint 1 DSP Math Dashboard
- * With Real-Time Frequency Range Isolation & Hardware Audio Bandpass Filter:
- * 1. Restrict analysis & gameplay to ANY frequency range [f_low, f_high]
- * 2. Real-time audio playback isolation: steep 24/48 dB/oct BiquadFilter cascade
- *    (Listen to ONLY the bass, ONLY the vocals, or any custom bandpass slice)
- * 3. 4 Parallel lanes dynamically partition the active band into 4 sub-ranges
- * 4. 2D Spectrogram highlights the isolated frequency corridor and dims the rest
- * 5. Dynamic 512-bin continuous Fourier curve with glowing boundary markers
- * 6. Synchronized 60 FPS sliding window waterfall timeline aligned at X = 95px
+ * With Real-Time Frequency Range Isolation & Physical Audio Filtering:
+ * 1. Restrict analysis & audio playback to ANY frequency range [filterLow, filterHigh]
+ * 2. Physical zero-phase brickwall audio filtering: plays pre-filtered / on-demand filtered audio files
+ *    (Listen to ONLY the bass, ONLY the vocals, or ONLY the highs with 0% leak!)
+ * 3. 4 Parallel lanes display pure DSP spectral flux onsets (multiband.peaks_sec_bands)
+ *    - Inactive lanes outside the frequency range are dimmed & muted
+ *    - Active lanes pulse on attack hits
+ * 4. Dynamic 512-bin continuous Fourier curve with HARD ZERO cutoff outside [filterLow, filterHigh]
+ * 5. Sliding 2D Spectrogram highlights the active frequency corridor and dims the rest
+ * 6. Synchronized 60 FPS waterfall timeline aligned at X = 95px
  */
 
 let analysisData = null;
@@ -20,15 +22,12 @@ let viewMode = 'curve'; // 'curve' | 'bars' | 'cqt'
 let filterLow = 20;
 let filterHigh = 11025;
 let isFilterActive = false;
+let currentAudioUrl = '';
 
-// Web Audio API Hardware Audio Chain & FFT
+// Web Audio API Hardware Analyser
 let audioCtx = null;
 let analyser = null;
 let sourceNode = null;
-let highpass1 = null;
-let highpass2 = null;
-let lowpass1 = null;
-let lowpass2 = null;
 let fftBuffer = null;
 const FFT_SIZE = 1024; // Yields 512 frequency bins
 const N_FFT_BINS = FFT_SIZE / 2; // 512
@@ -81,10 +80,10 @@ const noveltyCtx = noveltyCanvas ? noveltyCanvas.getContext('2d') : null;
 const sliceCanvas = document.getElementById('sliceCanvas');
 const sliceCtx = sliceCanvas ? sliceCanvas.getContext('2d') : null;
 
-// Band Styling Constants
+// Pure Sprint 1 DSP 4-Band Constants
 const BAND_COLORS = ['#f97316', '#eab308', '#10b981', '#06b6d4'];
-const DEFAULT_BAND_NAMES = ['🔴 BASS (32-130 Hz)', '🟡 TENOR (130-520 Hz)', '🟢 ALTO (520-2000 Hz)', '🔵 SOPRANO (2-11 kHz)'];
-const DEFAULT_FREQ_RANGES = [
+const BAND_NAMES = ['🔴 BASS (32-130 Hz)', '🟡 TENOR (130-520 Hz)', '🟢 ALTO (520-2000 Hz)', '🔵 SOPRANO (2-11 kHz)'];
+const BAND_FREQ_RANGES = [
   [32.7, 130.8],
   [130.8, 523.2],
   [523.2, 2093.0],
@@ -98,6 +97,9 @@ let offscreenCqtCanvas = document.createElement('canvas');
 let lastFpsTime = performance.now();
 let frameCount = 0;
 let currentFps = 60;
+
+// Debounce timer for custom filter API
+let customFilterDebounceTimer = null;
 
 // Musical Note Frequency Lookup (Equal Temperament A4 = 440 Hz)
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -133,39 +135,11 @@ function getHeatmapRgb(db) {
 }
 
 /**
- * Calculates 4 dynamic sub-bands for the currently active frequency range
+ * Checks if a frequency band [bandLow, bandHigh] overlaps with the active filter range [filterLow, filterHigh]
  */
-function getActiveSubBands() {
-  if (!isFilterActive) {
-    return {
-      names: DEFAULT_BAND_NAMES,
-      ranges: DEFAULT_FREQ_RANGES
-    };
-  }
-
-  const fLow = Math.max(20, filterLow);
-  const fHigh = Math.max(fLow + 20, filterHigh);
-  const r = Math.pow(fHigh / fLow, 0.25);
-  const f0 = fLow;
-  const f1 = f0 * r;
-  const f2 = f1 * r;
-  const f3 = f2 * r;
-  const f4 = fHigh;
-
-  return {
-    names: [
-      `🔴 Sub 1 (${f0.toFixed(0)} - ${f1.toFixed(0)} Гц)`,
-      `🟡 Sub 2 (${f1.toFixed(0)} - ${f2.toFixed(0)} Гц)`,
-      `🟢 Sub 3 (${f2.toFixed(0)} - ${f3.toFixed(0)} Гц)`,
-      `🔵 Sub 4 (${f3.toFixed(0)} - ${f4.toFixed(0)} Гц)`
-    ],
-    ranges: [
-      [f0, f1],
-      [f1, f2],
-      [f2, f3],
-      [f3, f4]
-    ]
-  };
+function isBandActive(bandLow, bandHigh) {
+  if (!isFilterActive) return true;
+  return !(bandHigh < filterLow || bandLow > filterHigh);
 }
 
 /**
@@ -197,9 +171,7 @@ async function initMathDashboard() {
 }
 
 /**
- * Setup Real-time Hardware Bandpass Filter & Web Audio API
- * Chain: source -> highpass1 -> highpass2 -> lowpass1 -> lowpass2 -> analyser -> destination
- * Provides 24 dB/octave brickwall frequency isolation!
+ * Initialize Web Audio API hardware AnalyserNode
  */
 function initWebAudio() {
   if (audioCtx) return;
@@ -209,86 +181,85 @@ function initWebAudio() {
 
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = FFT_SIZE; // 1024 -> 512 frequency bins
-    analyser.smoothingTimeConstant = 0.65;
+    analyser.smoothingTimeConstant = 0.60;
     analyser.minDecibels = -85;
     analyser.maxDecibels = -10;
 
     sourceNode = audioCtx.createMediaElementSource(audioPlayer);
-
-    // Cascaded Highpass filters
-    highpass1 = audioCtx.createBiquadFilter();
-    highpass1.type = 'highpass';
-    highpass2 = audioCtx.createBiquadFilter();
-    highpass2.type = 'highpass';
-
-    // Cascaded Lowpass filters
-    lowpass1 = audioCtx.createBiquadFilter();
-    lowpass1.type = 'lowpass';
-    lowpass2 = audioCtx.createBiquadFilter();
-    lowpass2.type = 'lowpass';
-
-    applyFilterFrequencies();
-
-    // Connect full DSP chain
-    sourceNode.connect(highpass1);
-    highpass1.connect(highpass2);
-    highpass2.connect(lowpass1);
-    lowpass1.connect(lowpass2);
-    lowpass2.connect(analyser);
+    sourceNode.connect(analyser);
     analyser.connect(audioCtx.destination);
 
     fftBuffer = new Uint8Array(analyser.frequencyBinCount);
-    console.log("Hardware Web Audio Bandpass Filter & FFT initialized: 512 frequency bins.");
+    console.log("Hardware Web Audio FFT Analyser initialized: 512 frequency bins.");
   } catch (err) {
-    console.warn("Web Audio API not supported or autoplay restriction:", err);
+    console.warn("Web Audio API init:", err);
   }
 }
 
 /**
- * Applies current filterLow & filterHigh to the real-time audio playback filters
+ * Seamlessly switch audio player source while maintaining currentTime & play state
  */
-function applyFilterFrequencies() {
-  if (!audioCtx || !highpass1) return;
+function switchAudioSource(newUrl) {
+  if (currentAudioUrl === newUrl) return;
+  currentAudioUrl = newUrl;
 
-  const now = audioCtx.currentTime;
+  const curTime = audioPlayer.currentTime || 0;
+  const isPlaying = !audioPlayer.paused;
+
+  audioPlayer.src = newUrl;
+  audioPlayer.currentTime = curTime;
+
+  if (isPlaying) {
+    audioPlayer.play().catch(e => console.warn("Audio play error:", e));
+  }
+}
+
+/**
+ * Applies current filter range:
+ * 1. Switches audio to physically brickwall filtered audio (scipy zero-phase filter)
+ * 2. Updates badges and UI indicators
+ */
+async function applyFilterRange(low, high, isActive) {
+  filterLow = low;
+  filterHigh = high;
+  isFilterActive = isActive;
 
   if (!isFilterActive || (filterLow <= 25 && filterHigh >= 11000)) {
-    // Transparent bypass
-    highpass1.frequency.setValueAtTime(10, now);
-    highpass2.frequency.setValueAtTime(10, now);
-    lowpass1.frequency.setValueAtTime(22050, now);
-    lowpass2.frequency.setValueAtTime(22050, now);
-
     if (filterAudioBadge) {
       filterAudioBadge.className = 'filter-audio-badge bypass';
       filterAudioBadge.textContent = '🔊 АУДИОФИЛЬТР: ВЫКЛ (Весь спектр)';
     }
     if (filterStatsText) {
-      filterStatsText.textContent = 'Активны все частоты 20 Гц — 11 025 Гц | Все дорожки и ноты';
+      filterStatsText.textContent = 'Активны все 4 полосы (Bass, Tenor, Alto, Soprano) | Исходный трек';
     }
+    switchAudioSource('/audio/test_music.mp3');
   } else {
-    // Active sharp bandpass filter
-    highpass1.frequency.setValueAtTime(filterLow, now);
-    highpass2.frequency.setValueAtTime(filterLow, now);
-    lowpass1.frequency.setValueAtTime(filterHigh, now);
-    lowpass2.frequency.setValueAtTime(filterHigh, now);
-
     if (filterAudioBadge) {
       filterAudioBadge.className = 'filter-audio-badge active';
       filterAudioBadge.textContent = `🔊 АУДИОФИЛЬТР: АКТИВЕН [${filterLow} Гц — ${filterHigh} Гц]`;
     }
 
-    // Count how many notes in the chart fall within the isolated range
-    let activeNotes = 0;
-    let totalNotes = 0;
-    if (analysisData && analysisData.chart) {
-      totalNotes = analysisData.chart.length;
-      activeNotes = analysisData.chart.filter(n => (n.freq >= filterLow && n.freq <= filterHigh)).length;
+    // Determine active bands
+    let activeBandsCount = 0;
+    for (let b = 0; b < 4; b++) {
+      if (isBandActive(BAND_FREQ_RANGES[b][0], BAND_FREQ_RANGES[b][1])) activeBandsCount++;
     }
-    const hiddenNotes = totalNotes - activeNotes;
 
     if (filterStatsText) {
-      filterStatsText.textContent = `Активно: ${activeNotes} нот в полосе [${filterLow} Гц — ${filterHigh} Гц] (скрыто: ${hiddenNotes} нот вне диапазона)`;
+      filterStatsText.textContent = `Диапазон: ${filterLow} — ${filterHigh} Гц | Активно полос: ${activeBandsCount} из 4 | Обрезано всё остальное`;
+    }
+
+    // Request brickwall filtered audio from server
+    try {
+      const resp = await fetch(`/api/filter_audio?low=${filterLow}&high=${filterHigh}`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.url) {
+          switchAudioSource(data.url);
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch filtered audio:", err);
     }
   }
 }
@@ -304,47 +275,48 @@ function setupBandpassFilterControls() {
     { btn: btnPresetHighs, low: 2500, high: 11025, active: true }
   ];
 
-  function setFilterRange(low, high, isActive, activeBtn) {
-    filterLow = low;
-    filterHigh = high;
-    isFilterActive = isActive;
-
-    document.querySelectorAll('.filter-preset-btn').forEach(b => b.classList.remove('active'));
-    if (activeBtn) activeBtn.classList.add('active');
-
-    if (sliderFlow) sliderFlow.value = filterLow;
-    if (sliderFhigh) sliderFhigh.value = filterHigh;
-    if (valFlow) valFlow.textContent = `${filterLow} Гц`;
-    if (valFhigh) valFhigh.textContent = `${filterHigh} Гц`;
-
-    applyFilterFrequencies();
-  }
-
   presets.forEach(({ btn, low, high, active }) => {
     if (!btn) return;
     btn.addEventListener('click', () => {
-      setFilterRange(low, high, active, btn);
+      document.querySelectorAll('.filter-preset-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      if (sliderFlow) sliderFlow.value = low;
+      if (sliderFhigh) sliderFhigh.value = high;
+      if (valFlow) valFlow.textContent = `${low} Гц`;
+      if (valFhigh) valFhigh.textContent = `${high} Гц`;
+
+      applyFilterRange(low, high, active);
     });
   });
 
   if (btnPresetCustom) {
     btnPresetCustom.addEventListener('click', () => {
-      isFilterActive = true;
       document.querySelectorAll('.filter-preset-btn').forEach(b => b.classList.remove('active'));
       btnPresetCustom.classList.add('active');
-      applyFilterFrequencies();
+      applyFilterRange(filterLow, filterHigh, true);
     });
+  }
+
+  function onSliderChange() {
+    isFilterActive = true;
+    document.querySelectorAll('.filter-preset-btn').forEach(b => b.classList.remove('active'));
+    if (btnPresetCustom) btnPresetCustom.classList.add('active');
+
+    if (valFlow) valFlow.textContent = `${filterLow} Гц`;
+    if (valFhigh) valFhigh.textContent = `${filterHigh} Гц`;
+
+    if (customFilterDebounceTimer) clearTimeout(customFilterDebounceTimer);
+    customFilterDebounceTimer = setTimeout(() => {
+      applyFilterRange(filterLow, filterHigh, true);
+    }, 350);
   }
 
   if (sliderFlow) {
     sliderFlow.addEventListener('input', (e) => {
       filterLow = parseInt(e.target.value);
       if (filterLow >= filterHigh) filterLow = filterHigh - 20;
-      if (valFlow) valFlow.textContent = `${filterLow} Гц`;
-      isFilterActive = true;
-      document.querySelectorAll('.filter-preset-btn').forEach(b => b.classList.remove('active'));
-      if (btnPresetCustom) btnPresetCustom.classList.add('active');
-      applyFilterFrequencies();
+      onSliderChange();
     });
   }
 
@@ -352,11 +324,7 @@ function setupBandpassFilterControls() {
     sliderFhigh.addEventListener('input', (e) => {
       filterHigh = parseInt(e.target.value);
       if (filterHigh <= filterLow) filterHigh = filterLow + 20;
-      if (valFhigh) valFhigh.textContent = `${filterHigh} Гц`;
-      isFilterActive = true;
-      document.querySelectorAll('.filter-preset-btn').forEach(b => b.classList.remove('active'));
-      if (btnPresetCustom) btnPresetCustom.classList.add('active');
-      applyFilterFrequencies();
+      onSliderChange();
     });
   }
 }
@@ -395,13 +363,15 @@ function setupMetadata() {
     <span class="meta-tag">⏱ ${meta.duration_sec}с</span>
     <span class="meta-tag">📡 ${meta.sample_rate} Гц</span>
     <span class="meta-tag">⚡ 512 полос Фурье (FFT)</span>
-    <span class="meta-tag">🎛️ Полосовой Фильтр (Bandpass)</span>
+    <span class="meta-tag">🎛️ Фильтр Баттерворта (Brickwall)</span>
   `;
 }
 
 function setupAudioPlayer() {
   const audioFile = analysisData.metadata.audio_filename;
-  audioPlayer.src = `/audio/${audioFile}`;
+  currentAudioUrl = `/audio/${audioFile}`;
+  audioPlayer.crossOrigin = "anonymous";
+  audioPlayer.src = currentAudioUrl;
 
   btnPlayPause.addEventListener('click', togglePlayPause);
   audioPlayer.addEventListener('play', () => {
@@ -530,11 +500,10 @@ function updateMathDashboard60FPS(timestamp) {
     Math.max(0, Math.floor(curTime / hopSec))
   );
 
-  // Synchronized sliding window coordinates
   const xHit = 95;
   const lookaheadSec = 3.0;
 
-  // 1. Render Top Visualizer: 4 Band Onset Lanes (Filtered to Active Range)
+  // 1. Render Top Visualizer: 4 Raw Frequency Lanes (Sprint 1 DSP multiband.peaks_sec_bands)
   renderRawBandsVisualization(curTime, xHit, lookaheadSec);
 
   // 2. Render Synchronized Sliding 2D Spectrogram (Highlighted to Active Corridor)
@@ -543,7 +512,7 @@ function updateMathDashboard60FPS(timestamp) {
   // 3. Render Synchronized Sliding 4-Band Novelty Curves
   renderSlidingNovelty(curTime, xHit, lookaheadSec);
 
-  // 4. Render Dynamic 512-bin Fast Fourier Transform (FFT) Continuous Curve
+  // 4. Render Dynamic 512-bin Fast Fourier Transform (FFT) Continuous Curve (Strict zero outside range!)
   renderDynamicFourierSlice(currentFrameIdx);
 
   // 5. Update Global Progress Fill & Time Display
@@ -556,10 +525,12 @@ function updateMathDashboard60FPS(timestamp) {
 }
 
 /**
- * 1. 4 Frequency Lanes (Sliding Window, xHit = 95px)
+ * 1. 4 Frequency Lanes (Sprint 1 Pure DSP Multi-Band Spectral Flux Onsets)
+ * Uses analysisData.multiband.peaks_sec_bands[b] directly.
+ * Zero game restrictions, zero corridor decay, zero debouncing.
  * When frequency isolation is active:
- * - Dynamically re-labels the 4 lanes to 4 sub-bands of [filterLow, filterHigh]
- * - Renders ONLY the notes/onsets falling within the active frequency range!
+ * - Inactive bands outside [filterLow, filterHigh] are dimmed and silenced.
+ * - Active bands pulse on attack hits.
  */
 function renderRawBandsVisualization(curTime, xHit, lookaheadSec) {
   if (!rawCtx || !rawBandsCanvas) return;
@@ -572,23 +543,32 @@ function renderRawBandsVisualization(curTime, xHit, lookaheadSec) {
   const nowMs = performance.now();
   const activeHits = [false, false, false, false];
 
-  const subBands = getActiveSubBands();
+  const minTime = curTime - (xHit / (width - xHit)) * lookaheadSec;
+  const maxTime = curTime + lookaheadSec;
 
   // Draw 4 Horizontal Lanes Background
   for (let b = 0; b < 4; b++) {
     const yTop = b * laneHeight;
     const color = BAND_COLORS[b];
+    const isBandInFilter = isBandActive(BAND_FREQ_RANGES[b][0], BAND_FREQ_RANGES[b][1]);
 
-    rawCtx.fillStyle = (b % 2 === 0) ? 'rgba(15, 23, 42, 0.85)' : 'rgba(30, 41, 59, 0.55)';
+    // Lane background
+    if (isBandInFilter) {
+      rawCtx.fillStyle = (b % 2 === 0) ? 'rgba(15, 23, 42, 0.85)' : 'rgba(30, 41, 59, 0.55)';
+    } else {
+      rawCtx.fillStyle = 'rgba(10, 15, 28, 0.95)'; // Dimmed inactive lane
+    }
     rawCtx.fillRect(0, yTop, width, laneHeight);
 
-    rawCtx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    rawCtx.strokeStyle = isBandInFilter ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.03)';
     rawCtx.lineWidth = 1;
     rawCtx.strokeRect(0, yTop, width, laneHeight);
 
-    rawCtx.fillStyle = color;
+    // Lane title
+    rawCtx.fillStyle = isBandInFilter ? color : 'rgba(148, 163, 184, 0.3)';
     rawCtx.font = '700 11px "JetBrains Mono", monospace';
-    rawCtx.fillText(subBands.names[b], 8, yTop + laneHeight / 2 + 4);
+    const labelText = isBandInFilter ? BAND_NAMES[b] : `${BAND_NAMES[b]} [ОТФИЛЬТРОВАНО]`;
+    rawCtx.fillText(labelText, 8, yTop + laneHeight / 2 + 4);
   }
 
   // Draw Vertical Hit Target Line
@@ -599,58 +579,38 @@ function renderRawBandsVisualization(curTime, xHit, lookaheadSec) {
   rawCtx.lineTo(xHit, height);
   rawCtx.stroke();
 
-  const minTime = curTime - (xHit / (width - xHit)) * lookaheadSec;
-  const maxTime = curTime + lookaheadSec;
+  // Render Pure Sprint 1 DSP Onset Peaks
+  if (analysisData && analysisData.multiband && analysisData.multiband.peaks_sec_bands) {
+    const peaksBands = analysisData.multiband.peaks_sec_bands;
 
-  // Render notes filtered to the isolated frequency range
-  if (analysisData && analysisData.chart) {
-    const chart = analysisData.chart;
+    for (let b = 0; b < 4; b++) {
+      const isBandInFilter = isBandActive(BAND_FREQ_RANGES[b][0], BAND_FREQ_RANGES[b][1]);
+      if (!isBandInFilter) continue; // Skip onsets for inactive filtered bands!
 
-    for (let i = 0; i < chart.length; i++) {
-      const note = chart[i];
-      if (note.time < minTime || note.time > maxTime) continue;
+      const bandPeaks = peaksBands[b];
+      const yCenter = b * laneHeight + laneHeight / 2;
+      const color = BAND_COLORS[b];
 
-      const freq = note.freq || 200;
+      for (let i = 0; i < bandPeaks.length; i++) {
+        const tPeak = bandPeaks[i];
+        if (tPeak < minTime || tPeak > maxTime) continue;
 
-      // Filter: Skip notes outside active frequency range!
-      if (isFilterActive && (freq < filterLow || freq > filterHigh)) {
-        continue;
-      }
+        const dt = tPeak - curTime;
+        const xPos = xHit + (dt / lookaheadSec) * (width - xHit);
 
-      // Determine which of the 4 sub-bands this note belongs to
-      let laneIdx = 0;
-      for (let b = 0; b < 4; b++) {
-        const [lowB, highB] = subBands.ranges[b];
-        if (freq >= lowB && freq <= highB) {
-          laneIdx = b;
-          break;
+        if (dt >= -0.05 && dt <= 0.06) {
+          activeHits[b] = true;
+          lastAttackTimes[b] = nowMs;
         }
-      }
 
-      const dt = note.time - curTime;
-      const xPos = xHit + (dt / lookaheadSec) * (width - xHit);
-      const yCenter = laneIdx * laneHeight + laneHeight / 2;
-      const color = BAND_COLORS[laneIdx];
-
-      if (dt >= -0.05 && dt <= 0.06) {
-        activeHits[laneIdx] = true;
-        lastAttackTimes[laneIdx] = nowMs;
-      }
-
-      if (xPos >= xHit - 15 && xPos <= width + 15) {
-        rawCtx.fillStyle = color;
-        rawCtx.beginPath();
-        rawCtx.arc(xPos, yCenter, 8, 0, Math.PI * 2);
-        rawCtx.fill();
-        rawCtx.strokeStyle = '#ffffff';
-        rawCtx.lineWidth = 1.5;
-        rawCtx.stroke();
-
-        // Optional frequency text tag on note
-        if (xPos >= xHit && xPos <= xHit + 120) {
-          rawCtx.fillStyle = 'rgba(255, 255, 255, 0.7)';
-          rawCtx.font = '600 9px "JetBrains Mono", monospace';
-          rawCtx.fillText(`${freq.toFixed(0)}Hz`, xPos + 10, yCenter + 3);
+        if (xPos >= xHit - 15 && xPos <= width + 15) {
+          rawCtx.fillStyle = color;
+          rawCtx.beginPath();
+          rawCtx.arc(xPos, yCenter, 8, 0, Math.PI * 2);
+          rawCtx.fill();
+          rawCtx.strokeStyle = '#ffffff';
+          rawCtx.lineWidth = 1.5;
+          rawCtx.stroke();
         }
       }
     }
@@ -658,11 +618,18 @@ function renderRawBandsVisualization(curTime, xHit, lookaheadSec) {
 
   // Update Band Indicator Badges
   for (let b = 0; b < 4; b++) {
-    const isHitActive = activeHits[b] || (nowMs - lastAttackTimes[b] < 120);
+    const isBandInFilter = isBandActive(BAND_FREQ_RANGES[b][0], BAND_FREQ_RANGES[b][1]);
+    const isHitActive = isBandInFilter && (activeHits[b] || (nowMs - lastAttackTimes[b] < 120));
     const indBox = indBands[b];
     if (indBox) {
-      if (isHitActive && !indBox.classList.contains('active')) indBox.classList.add('active');
-      else if (!isHitActive && indBox.classList.contains('active')) indBox.classList.remove('active');
+      if (!isBandInFilter) {
+        indBox.style.opacity = '0.3';
+        indBox.classList.remove('active');
+      } else {
+        indBox.style.opacity = '1.0';
+        if (isHitActive && !indBox.classList.contains('active')) indBox.classList.add('active');
+        else if (!isHitActive && indBox.classList.contains('active')) indBox.classList.remove('active');
+      }
     }
   }
 }
@@ -671,7 +638,7 @@ function renderRawBandsVisualization(curTime, xHit, lookaheadSec) {
  * 2. Synchronized Sliding 2D Spectrogram (Waterfall)
  * When frequency isolation is active:
  * - Highlights the active frequency corridor [filterLow, filterHigh]
- * - Dims / masks out frequencies outside the range
+ * - Dims out frequencies outside the range
  */
 function renderSlidingSpectrogram(curTime, xHit, lookaheadSec) {
   if (!cqtCtx || !cqtCanvas || offscreenCqtCanvas.width === 0) return;
@@ -717,14 +684,9 @@ function renderSlidingSpectrogram(curTime, xHit, lookaheadSec) {
   }
 
   // If Frequency Range Isolation is Active:
-  // Mask out frequencies outside [filterLow, filterHigh]
+  // Shade out frequencies outside [filterLow, filterHigh]
   if (isFilterActive && analysisData.frequencies) {
     const freqs = analysisData.frequencies;
-    const fMinFreq = freqs[0];
-    const fMaxFreq = freqs[freqs.length - 1];
-
-    // Compute pixel Y coordinates for filterLow and filterHigh:
-    // CQT bins: bin 0 (lowest freq) is at bottom, bin 83 is at top
     let binLow = 0;
     let binHigh = nBins - 1;
 
@@ -736,9 +698,9 @@ function renderSlidingSpectrogram(curTime, xHit, lookaheadSec) {
     const yHigh = height - (binHigh / nBins) * height; // Top of active corridor
     const yLow = height - (binLow / nBins) * height;   // Bottom of active corridor
 
-    // Dim region ABOVE filterHigh (High frequencies out of range)
+    // Dim region ABOVE filterHigh
     if (yHigh > 0) {
-      cqtCtx.fillStyle = 'rgba(2, 6, 23, 0.78)';
+      cqtCtx.fillStyle = 'rgba(2, 6, 23, 0.85)';
       cqtCtx.fillRect(0, 0, width, yHigh);
 
       cqtCtx.strokeStyle = '#38bdf8';
@@ -752,12 +714,12 @@ function renderSlidingSpectrogram(curTime, xHit, lookaheadSec) {
 
       cqtCtx.fillStyle = '#38bdf8';
       cqtCtx.font = '700 10px "JetBrains Mono", monospace';
-      cqtCtx.fillText(`▼ F max: ${filterHigh} Гц`, width - 120, yHigh + 12);
+      cqtCtx.fillText(`▼ F max: ${filterHigh} Гц`, width - 130, yHigh + 12);
     }
 
-    // Dim region BELOW filterLow (Low frequencies out of range)
+    // Dim region BELOW filterLow
     if (yLow < height) {
-      cqtCtx.fillStyle = 'rgba(2, 6, 23, 0.78)';
+      cqtCtx.fillStyle = 'rgba(2, 6, 23, 0.85)';
       cqtCtx.fillRect(0, yLow, width, height - yLow);
 
       cqtCtx.strokeStyle = '#f97316';
@@ -771,7 +733,7 @@ function renderSlidingSpectrogram(curTime, xHit, lookaheadSec) {
 
       cqtCtx.fillStyle = '#f97316';
       cqtCtx.font = '700 10px "JetBrains Mono", monospace';
-      cqtCtx.fillText(`▲ F min: ${filterLow} Гц`, width - 120, yLow - 4);
+      cqtCtx.fillText(`▲ F min: ${filterLow} Гц`, width - 130, yLow - 4);
     }
   }
 
@@ -809,24 +771,28 @@ function renderSlidingNovelty(curTime, xHit, lookaheadSec) {
   const sfBands = analysisData.multiband.sf_bands;
   const thBands = analysisData.multiband.thresholds_bands;
   const bandHeight = height / 4;
-  const subBands = getActiveSubBands();
 
   for (let b = 0; b < 4; b++) {
     const yOffset = b * bandHeight;
     const color = BAND_COLORS[b];
+    const isBandInFilter = isBandActive(BAND_FREQ_RANGES[b][0], BAND_FREQ_RANGES[b][1]);
 
     // Background lane
-    noveltyCtx.fillStyle = (b % 2 === 0) ? 'rgba(15, 23, 42, 0.75)' : 'rgba(30, 41, 59, 0.45)';
+    noveltyCtx.fillStyle = isBandInFilter
+      ? ((b % 2 === 0) ? 'rgba(15, 23, 42, 0.75)' : 'rgba(30, 41, 59, 0.45)')
+      : 'rgba(10, 15, 28, 0.95)';
     noveltyCtx.fillRect(0, yOffset, width, bandHeight);
 
-    noveltyCtx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    noveltyCtx.strokeStyle = isBandInFilter ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.03)';
     noveltyCtx.lineWidth = 1;
     noveltyCtx.strokeRect(0, yOffset, width, bandHeight);
 
     // Label
-    noveltyCtx.fillStyle = color;
+    noveltyCtx.fillStyle = isBandInFilter ? color : 'rgba(148, 163, 184, 0.3)';
     noveltyCtx.font = '700 10px "JetBrains Mono", monospace';
-    noveltyCtx.fillText(subBands.names[b].split(' ')[1] || `Band ${b+1}`, 8, yOffset + 14);
+    noveltyCtx.fillText(isBandInFilter ? (BAND_NAMES[b].split(' ')[1] || `Band ${b+1}`) : `${BAND_NAMES[b].split(' ')[1]} [CUT]`, 8, yOffset + 14);
+
+    if (!isBandInFilter) continue; // Don't draw curve for filtered out bands!
 
     // Draw Novelty Curve
     noveltyCtx.beginPath();
@@ -886,7 +852,7 @@ function renderSlidingNovelty(curTime, xHit, lookaheadSec) {
  * 4. Dynamic Live Fast Fourier Transform (FFT / STFT) Slice
  * - 512 Frequency Bins (6x more bars than 84 CQT)
  * - Silky smooth continuous glowing spectral envelope curve
- * - Highlights active frequency range [filterLow, filterHigh]
+ * - HARD ZERO cutoff outside active frequency range [filterLow, filterHigh]!
  */
 function renderDynamicFourierSlice(frameIdx) {
   if (!sliceCtx || !sliceCanvas) return;
@@ -899,7 +865,6 @@ function renderDynamicFourierSlice(frameIdx) {
   const sr = analysisData.metadata.sample_rate || 22050;
 
   // 1. Get 512-point frequency amplitudes:
-  // Hardware FFT directly reflects the active bandpass filter in real time!
   const amplitudes = new Float32Array(N_FFT_BINS);
   let maxAmp = 0;
   let maxBin = 0;
@@ -907,6 +872,14 @@ function renderDynamicFourierSlice(frameIdx) {
   if (analyser && !audioPlayer.paused && fftBuffer) {
     analyser.getByteFrequencyData(fftBuffer);
     for (let i = 0; i < N_FFT_BINS; i++) {
+      const freq = (i / N_FFT_BINS) * (sr / 2);
+
+      // HARD CUTOFF: If frequency isolation is active, strictly zero out outside [filterLow, filterHigh]!
+      if (isFilterActive && (freq < filterLow || freq > filterHigh)) {
+        amplitudes[i] = 0;
+        continue;
+      }
+
       const val = fftBuffer[i] / 255.0;
       amplitudes[i] = val;
       if (val > maxAmp) {
@@ -922,7 +895,7 @@ function renderDynamicFourierSlice(frameIdx) {
     for (let i = 0; i < N_FFT_BINS; i++) {
       const freq = (i / N_FFT_BINS) * (sr / 2);
 
-      // If filter active, zero out offline amplitudes outside range
+      // HARD CUTOFF outside active range
       if (isFilterActive && (freq < filterLow || freq > filterHigh)) {
         amplitudes[i] = 0;
         continue;
@@ -952,8 +925,8 @@ function renderDynamicFourierSlice(frameIdx) {
   // Dominant Peak Frequency & Note Name
   const domFreq = (maxBin / N_FFT_BINS) * (sr / 2);
   const domNote = freqToNoteName(domFreq);
-  if (dominantPeakText && maxAmp > 0.08) {
-    dominantPeakText.innerHTML = `🎯 Фурье-пик: <span class="peak-tag">${domFreq.toFixed(1)} Гц (${domNote})</span> | Амплитуда: ${(maxAmp * 100).toFixed(0)}% | ${isFilterActive ? `Полоса: ${filterLow}-${filterHigh} Гц` : 'Весь спектр'}`;
+  if (dominantPeakText && maxAmp > 0.06) {
+    dominantPeakText.innerHTML = `🎯 Фурье-пик: <span class="peak-tag">${domFreq.toFixed(1)} Гц (${domNote})</span> | Уровень: ${(maxAmp * 100).toFixed(0)}% | ${isFilterActive ? `Полоса: ${filterLow} — ${filterHigh} Гц (Обрезано снаружи)` : 'Весь спектр'}`;
   }
 
   // Render Based on Selected View Mode:
@@ -973,22 +946,20 @@ function renderDynamicFourierSlice(frameIdx) {
   for (let b = 0; b < N_FFT_BINS; b++) {
     const freq = (b / N_FFT_BINS) * (sr / 2);
     const amp = amplitudes[b];
+    if (amp <= 0.001) continue; // Don't draw bars outside range!
+
     const barHeight = amp * usableHeight;
     const x = b * barWidth;
     const y = height - 25 - barHeight;
 
-    const inRange = !isFilterActive || (freq >= filterLow && freq <= filterHigh);
-
     // Multi-band color matching
-    let color = inRange ? BAND_COLORS[3] : 'rgba(148, 163, 184, 0.2)';
-    if (inRange) {
-      if (freq < DEFAULT_FREQ_RANGES[0][1]) color = BAND_COLORS[0];
-      else if (freq < DEFAULT_FREQ_RANGES[1][1]) color = BAND_COLORS[1];
-      else if (freq < DEFAULT_FREQ_RANGES[2][1]) color = BAND_COLORS[2];
-    }
+    let color = BAND_COLORS[3];
+    if (freq < BAND_FREQ_RANGES[0][1]) color = BAND_COLORS[0];
+    else if (freq < BAND_FREQ_RANGES[1][1]) color = BAND_COLORS[1];
+    else if (freq < BAND_FREQ_RANGES[2][1]) color = BAND_COLORS[2];
 
     if (viewMode === 'curve') {
-      sliceCtx.fillStyle = inRange ? colorWithAlpha(color, 0.40) : 'rgba(255, 255, 255, 0.05)';
+      sliceCtx.fillStyle = colorWithAlpha(color, 0.45);
     } else {
       sliceCtx.fillStyle = color;
     }
@@ -1010,8 +981,7 @@ function renderDynamicFourierSlice(frameIdx) {
       const x = b * barWidth;
       const amp = amplitudes[b];
       const y = height - 25 - (amp * usableHeight);
-      if (b === 0) sliceCtx.lineTo(x, y);
-      else sliceCtx.lineTo(x, y);
+      sliceCtx.lineTo(x, y);
     }
     sliceCtx.lineTo(width, height - 25);
     sliceCtx.closePath();
@@ -1035,8 +1005,8 @@ function renderDynamicFourierSlice(frameIdx) {
     sliceCtx.stroke();
     sliceCtx.shadowBlur = 0;
 
-    // Peak Marker Pin
-    if (maxAmp > 0.10) {
+    // Peak Marker Pin (Only within active range!)
+    if (maxAmp > 0.08 && domFreq >= filterLow && domFreq <= filterHigh) {
       const peakX = maxBin * barWidth;
       const peakY = height - 25 - (maxAmp * usableHeight);
 
@@ -1060,22 +1030,28 @@ function renderDynamicFourierSlice(frameIdx) {
     sliceCtx.lineWidth = 1.8;
     sliceCtx.setLineDash([4, 4]);
 
-    // F min line
+    // F min boundary line
     sliceCtx.beginPath();
     sliceCtx.moveTo(xFilterLow, 0);
     sliceCtx.lineTo(xFilterLow, height - 25);
     sliceCtx.stroke();
 
-    // F max line
+    // F max boundary line
     sliceCtx.beginPath();
     sliceCtx.moveTo(xFilterHigh, 0);
     sliceCtx.lineTo(xFilterHigh, height - 25);
     sliceCtx.stroke();
     sliceCtx.setLineDash([]);
 
-    // Highlight zone
-    sliceCtx.fillStyle = 'rgba(16, 185, 129, 0.05)';
+    // Highlight active zone
+    sliceCtx.fillStyle = 'rgba(16, 185, 129, 0.06)';
     sliceCtx.fillRect(xFilterLow, 0, xFilterHigh - xFilterLow, height - 25);
+
+    // Text labels at boundaries
+    sliceCtx.fillStyle = '#10b981';
+    sliceCtx.font = '700 9px "JetBrains Mono", monospace';
+    sliceCtx.fillText(`[F min: ${filterLow}Hz]`, Math.max(5, xFilterLow + 4), 14);
+    sliceCtx.fillText(`[F max: ${filterHigh}Hz]`, Math.min(width - 95, xFilterHigh - 95), 14);
   }
 
   // Draw Bottom Base Axis Line
@@ -1095,8 +1071,12 @@ function renderOriginalCqtBars(frameIdx, width, height) {
   const dbMatrix = analysisData.spectrogram_db;
   const barWidth = width / nBins;
   const bandRanges = analysisData.metadata.band_ranges;
+  const freqs = analysisData.frequencies || [];
 
   for (let b = 0; b < nBins; b++) {
+    const f = freqs[b] || 200;
+    if (isFilterActive && (f < filterLow || f > filterHigh)) continue;
+
     const db = dbMatrix[b][frameIdx] || -80;
     const norm = Math.max(0, Math.min(1, (db + 80) / 80));
     const barHeight = norm * (height - 35);
