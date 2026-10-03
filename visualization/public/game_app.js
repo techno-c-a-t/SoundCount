@@ -92,17 +92,25 @@ let offscreenCqtCanvas = document.createElement('canvas');
 let offscreenNoveltyCanvas = document.createElement('canvas');
 let precomputedBlockedSets = [];
 
+let rawFullChart = [];
+let gameAudioCtx = null;
+let gameHighpass1 = null, gameHighpass2 = null;
+let gameLowpass1 = null, gameLowpass2 = null;
+let filterGameLow = 20, filterGameHigh = 11025, isGameFilterActive = false;
+
 async function initDashboard() {
   try {
     const response = await fetch('/analysis.json');
     if (!response.ok) throw new Error("Could not load analysis.json");
     analysisData = await response.json();
+    rawFullChart = JSON.parse(JSON.stringify(analysisData.chart || []));
 
     preprocessBlockedBins();
     preprocessChartTileHeights();
     resizeCanvases();
     setupMetadata();
     setupAudioPlayer();
+    setupGameFilterControls();
     buildOffscreenStaticSpectrogram();
     buildOffscreenStaticNovelty();
 
@@ -222,9 +230,18 @@ const recCountText = document.getElementById('recCountText');
 
 function setupAudioPlayer() {
   const audioFile = analysisData.metadata.audio_filename;
+  audioPlayer.crossOrigin = "anonymous";
   audioPlayer.src = `/audio/${audioFile}`;
 
   btnPlayPause.addEventListener('click', togglePlayPause);
+  audioPlayer.addEventListener('play', () => {
+    initGameWebAudio();
+    if (gameAudioCtx && gameAudioCtx.state === 'suspended') gameAudioCtx.resume();
+    btnPlayPause.textContent = "⏸";
+  });
+  audioPlayer.addEventListener('pause', () => {
+    btnPlayPause.textContent = "▶";
+  });
 
   audioPlayer.addEventListener('seeking', () => {
     activeChartStartIndex = 0;
@@ -240,6 +257,100 @@ function setupAudioPlayer() {
   }
 
   setupVibeRecordingControls();
+}
+
+function initGameWebAudio() {
+  if (gameAudioCtx) return;
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    gameAudioCtx = new AudioContext();
+    const source = gameAudioCtx.createMediaElementSource(audioPlayer);
+
+    gameHighpass1 = gameAudioCtx.createBiquadFilter();
+    gameHighpass1.type = 'highpass';
+    gameHighpass2 = gameAudioCtx.createBiquadFilter();
+    gameHighpass2.type = 'highpass';
+
+    gameLowpass1 = gameAudioCtx.createBiquadFilter();
+    gameLowpass1.type = 'lowpass';
+    gameLowpass2 = gameAudioCtx.createBiquadFilter();
+    gameLowpass2.type = 'lowpass';
+
+    applyGameAudioFilter();
+
+    source.connect(gameHighpass1);
+    gameHighpass1.connect(gameHighpass2);
+    gameHighpass2.connect(gameLowpass1);
+    gameLowpass1.connect(gameLowpass2);
+    gameLowpass2.connect(gameAudioCtx.destination);
+    console.log("Game Web Audio Bandpass Filter initialized.");
+  } catch (e) {
+    console.warn("Game Web Audio init error:", e);
+  }
+}
+
+function applyGameAudioFilter() {
+  if (!gameAudioCtx || !gameHighpass1) return;
+  const now = gameAudioCtx.currentTime;
+  if (!isGameFilterActive || (filterGameLow <= 25 && filterGameHigh >= 11000)) {
+    gameHighpass1.frequency.setValueAtTime(10, now);
+    gameHighpass2.frequency.setValueAtTime(10, now);
+    gameLowpass1.frequency.setValueAtTime(22050, now);
+    gameLowpass2.frequency.setValueAtTime(22050, now);
+  } else {
+    gameHighpass1.frequency.setValueAtTime(filterGameLow, now);
+    gameHighpass2.frequency.setValueAtTime(filterGameLow, now);
+    gameLowpass1.frequency.setValueAtTime(filterGameHigh, now);
+    gameLowpass2.frequency.setValueAtTime(filterGameHigh, now);
+  }
+}
+
+function setupGameFilterControls() {
+  const filterBtns = [
+    { id: 'btnGameFilterAll', low: 20, high: 11025, active: false },
+    { id: 'btnGameFilterBass', low: 30, high: 250, active: true },
+    { id: 'btnGameFilterMids', low: 250, high: 2500, active: true },
+    { id: 'btnGameFilterHighs', low: 2500, high: 11025, active: true }
+  ];
+
+  filterBtns.forEach(({ id, low, high, active }) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.game-filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      filterGameLow = low;
+      filterGameHigh = high;
+      isGameFilterActive = active;
+
+      initGameWebAudio();
+      if (gameAudioCtx && gameAudioCtx.state === 'suspended') gameAudioCtx.resume();
+      applyGameAudioFilter();
+
+      // Filter and remap chart notes for game tiles
+      if (rawFullChart && rawFullChart.length > 0) {
+        if (!active) {
+          analysisData.chart = JSON.parse(JSON.stringify(rawFullChart));
+        } else {
+          const filtered = rawFullChart.filter(n => (n.freq >= low && n.freq <= high));
+          const r = Math.pow(high / low, 0.25);
+          const f0 = low, f1 = f0 * r, f2 = f1 * r, f3 = f2 * r;
+          filtered.forEach(note => {
+            const f = note.freq || 200;
+            if (f < f1) note.lane = 0;
+            else if (f < f2) note.lane = 1;
+            else if (f < f3) note.lane = 2;
+            else note.lane = 3;
+          });
+          analysisData.chart = filtered;
+        }
+        preprocessChartTileHeights();
+        activeChartStartIndex = 0;
+      }
+    });
+  });
 }
 
 function setupVibeRecordingControls() {

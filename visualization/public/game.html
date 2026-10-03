@@ -44,6 +44,15 @@
         <span>ИДЕТ ЗАПИСЬ ОЩУЩЕНИЙ (ТЭППИНГ ПО ВАЙБУ). Нажимайте по дорожкам! (ПК: D, F, J, K)</span>
         <span class="rec-count" id="recCountText">0 нот</span>
       </div>
+
+      <!-- 🎛️ Real-Time Frequency Isolation Filter Strip -->
+      <div class="game-filter-strip">
+        <span class="game-filter-lbl">🎛️ Диапазон игры и звука:</span>
+        <button class="game-filter-btn active" id="btnGameFilterAll" data-low="20" data-high="11025">🌐 Весь трек</button>
+        <button class="game-filter-btn" id="btnGameFilterBass" data-low="30" data-high="250">🎸 Только Бас (30-250 Гц)</button>
+        <button class="game-filter-btn" id="btnGameFilterMids" data-low="250" data-high="2500">🎤 Вокал / Соло (250-2500 Гц)</button>
+        <button class="game-filter-btn" id="btnGameFilterHighs" data-low="2500" data-high="11025">✨ Высокие (2.5-11 кГц)</button>
+      </div>
     </header>
 
     <!-- 🎮 MAIN PLAYABLE MOBILE CANVAS (Vertical Falling Tiles, Full Screen Width) -->

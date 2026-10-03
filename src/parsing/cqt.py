@@ -70,3 +70,45 @@ def compute_cqt(
         "hop_length": hop_length,
         "sample_rate": sr
     }
+
+
+def compute_stft(
+    y: np.ndarray,
+    sr: int = SAMPLE_RATE,
+    hop_length: int = HOP_SIZE,
+    n_fft: int = 1024
+) -> dict:
+    """
+    Computes Short-Time Fourier Transform (STFT) of input audio signal.
+
+    Args:
+        y (np.ndarray): Audio signal array.
+        sr (int): Sampling rate.
+        hop_length (int): Hop length in samples.
+        n_fft (int): FFT window size (1024 -> 513 linear frequency bins).
+
+    Returns:
+        dict containing:
+            - 'D': Complex STFT matrix [n_bins x n_frames]
+            - 'S': Magnitude spectrum |D| [n_bins x n_frames]
+            - 'S_db': Log-scaled magnitude spectrum in dB
+            - 'frequencies': Frequency in Hz for each bin
+            - 'times': Time in seconds for each frame
+    """
+    D = librosa.stft(y=y, n_fft=n_fft, hop_length=hop_length)
+    S = np.abs(D)
+    S_db = librosa.amplitude_to_db(S, ref=np.max)
+    frequencies = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+    n_frames = S.shape[1]
+    times = librosa.frames_to_time(np.arange(n_frames), sr=sr, hop_length=hop_length)
+
+    return {
+        "D": D,
+        "S": S,
+        "S_db": S_db,
+        "frequencies": frequencies,
+        "times": times,
+        "hop_length": hop_length,
+        "sample_rate": sr
+    }
+
