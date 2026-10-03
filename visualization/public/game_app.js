@@ -9,11 +9,59 @@ let currentFrameIdx = 0;
 let animFrameId = null;
 let activeChartStartIndex = 0;
 
+// Game Modes & Rules
+const GAME_MODES = {
+  cowboy: {
+    id: 'cowboy',
+    name: 'Ковбой',
+    icon: '🤠',
+    minSpeed: 2.0,
+    maxSpeed: 3.5,
+    quote: '«Самый быстрый стрелок на Диком Западе!»',
+    perfectBonus: 3
+  },
+  statham: {
+    id: 'statham',
+    name: 'Стэтхем',
+    icon: '🗿',
+    minSpeed: 1.5,
+    maxSpeed: 2.5,
+    quote: '«Одна ошибка — и ты ошибся.»<br><span style="font-size:0.75rem;opacity:0.8">— Джейсон Стэтхем</span>',
+    perfectBonus: 8
+  },
+  zen: {
+    id: 'zen',
+    name: 'Дзен',
+    icon: '🧘',
+    minSpeed: 1.0,
+    maxSpeed: 5.0,
+    quote: '«Тише едешь — дальше будешь. Полная гармония.»',
+    perfectBonus: 2
+  }
+};
+let currentMode = 'cowboy';
+
+// Cumulative Fibonacci thresholds for streak multipliers:
+// +3, +5, +8, +13, +21, +34, +55, +89, +144, +233
+const CUMULATIVE_FIBONACCI = [3, 8, 16, 29, 50, 84, 139, 228, 372, 605];
+
+function getFibonacciTier(combo) {
+  for (let i = CUMULATIVE_FIBONACCI.length - 1; i >= 0; i--) {
+    if (combo >= CUMULATIVE_FIBONACCI[i]) {
+      return i + 1; // 1 to 10
+    }
+  }
+  return 0;
+}
+
 // Game State
 let gameScore = 0;
 let gameCombo = 0;
+let maxComboAchieved = 0;
+let cowboyMissStreak = 0;
+let isGameOver = false;
 let hitEffects = []; // Particle effects & floating score text
-let noteHitStates = {}; // Map noteId/index -> boolean
+let noteHitStates = {}; // Map noteId/index -> boolean | 'missed'
 
 // Profiler / Trace variables
 let frameCount = 0;
@@ -98,19 +146,50 @@ let gameHighpass1 = null, gameHighpass2 = null;
 let gameLowpass1 = null, gameLowpass2 = null;
 let filterGameLow = 20, filterGameHigh = 11025, isGameFilterActive = false;
 
-// ⚡ Speed Configuration: Smooth progression 2.0x at start -> 3.5x at end
+// ⚡ Speed & Multiplier Configuration for Game Modes
 let speedMode = 'dynamic';
 let fixedTileSpeedMultiplier = 2.75;
 const gameSpeedLbl = document.getElementById('gameSpeedLbl');
 
 function getCurrentSpeedMultiplier(curTime) {
+  const mode = GAME_MODES[currentMode] || GAME_MODES.cowboy;
   if (speedMode === 'dynamic') {
     const totalDur = (analysisData && analysisData.metadata && analysisData.metadata.duration_sec) ? analysisData.metadata.duration_sec : 1.0;
     const tRatio = Math.max(0, Math.min(1, curTime / totalDur));
-    // Smooth progression: 2.0x at the start -> 3.5x at the end
-    return 2.0 + 1.5 * tRatio;
+    return mode.minSpeed + (mode.maxSpeed - mode.minSpeed) * tRatio;
   }
   return fixedTileSpeedMultiplier;
+}
+
+function getActiveMultiplier(curTime) {
+  if (currentMode === 'cowboy') {
+    return Math.min(10, getFibonacciTier(gameCombo));
+  } else if (currentMode === 'statham') {
+    const tier = getFibonacciTier(gameCombo);
+    return 1.0 + tier * 0.5;
+  } else if (currentMode === 'zen') {
+    const speed = getCurrentSpeedMultiplier(curTime);
+    return speed * 3;
+  }
+  return 1;
+}
+
+function updateTopBarStats() {
+  if (gameScoreText) gameScoreText.textContent = `SCORE: ${gameScore}`;
+  if (gameComboText) gameComboText.textContent = `COMBO x${gameCombo}`;
+
+  const gameMultBadge = document.getElementById('gameMultText');
+  if (gameMultBadge) {
+    const curTime = audioPlayer ? (audioPlayer.currentTime || 0) : 0;
+    const mult = getActiveMultiplier(curTime);
+    if (currentMode === 'cowboy') {
+      gameMultBadge.textContent = `x${mult}`;
+    } else if (currentMode === 'statham') {
+      gameMultBadge.textContent = `x${mult.toFixed(1)}`;
+    } else if (currentMode === 'zen') {
+      gameMultBadge.textContent = `x${mult.toFixed(1)}`;
+    }
+  }
 }
 
 async function initDashboard() {
@@ -359,15 +438,41 @@ function setupMetadata() {
 }
 
 function setupMainMenu() {
+  const modesListContainer = document.getElementById('modesListContainer');
+  const menuSelectedModeTag = document.getElementById('menuSelectedModeTag');
+  const menuTrackSpeedBadge = document.getElementById('menuTrackSpeedBadge');
+  const btnGoRetry = document.getElementById('btnGoRetry');
+  const btnGoMenu = document.getElementById('btnGoMenu');
+  const gameOverModal = document.getElementById('gameOverModal');
+
+  // Mode Selection
+  if (modesListContainer) {
+    const modeItems = modesListContainer.querySelectorAll('.mode-item');
+    modeItems.forEach(item => {
+      item.addEventListener('click', () => {
+        const modeKey = item.dataset.mode;
+        if (!GAME_MODES[modeKey]) return;
+
+        modeItems.forEach(el => el.classList.remove('selected'));
+        item.classList.add('selected');
+
+        currentMode = modeKey;
+        const mode = GAME_MODES[currentMode];
+
+        if (menuSelectedModeTag) {
+          menuSelectedModeTag.textContent = `${mode.icon} ${mode.name}`;
+        }
+        if (menuTrackSpeedBadge) {
+          menuTrackSpeedBadge.textContent = `🚀 ${mode.minSpeed.toFixed(1)}x ➔ ${mode.maxSpeed.toFixed(1)}x`;
+        }
+        updateTopBarStats();
+      });
+    });
+  }
+
   if (btnStartGame) {
     btnStartGame.addEventListener('click', () => {
-      if (gameMainMenu) gameMainMenu.classList.add('hidden');
-      initGameWebAudio();
-      if (gameAudioCtx && gameAudioCtx.state === 'suspended') gameAudioCtx.resume();
-      if (audioPlayer.paused) {
-        audioPlayer.play();
-        btnPlayPause.textContent = "⏸";
-      }
+      startFreshGame();
     });
   }
 
@@ -380,6 +485,103 @@ function setupMainMenu() {
       if (gameMainMenu) gameMainMenu.classList.remove('hidden');
     });
   }
+
+  if (btnGoRetry) {
+    btnGoRetry.addEventListener('click', () => {
+      startFreshGame();
+    });
+  }
+
+  if (btnGoMenu) {
+    btnGoMenu.addEventListener('click', () => {
+      if (gameOverModal) gameOverModal.classList.add('hidden');
+      if (gameMainMenu) gameMainMenu.classList.remove('hidden');
+      resetGameState();
+    });
+  }
+}
+
+function triggerGameOver(modeKey, reason) {
+  isGameOver = true;
+  if (audioPlayer && !audioPlayer.paused) {
+    audioPlayer.pause();
+    btnPlayPause.textContent = "▶";
+  }
+
+  const goModal = document.getElementById('gameOverModal');
+  const goIcon = document.getElementById('goIcon');
+  const goTitle = document.getElementById('goTitle');
+  const goQuote = document.getElementById('goQuote');
+  const goScore = document.getElementById('goScore');
+  const goMaxCombo = document.getElementById('goMaxCombo');
+  const goMode = document.getElementById('goMode');
+
+  const mode = GAME_MODES[currentMode] || GAME_MODES.statham;
+
+  if (goIcon) goIcon.textContent = (mode.id === 'statham') ? '🗿' : '💀';
+  if (goTitle) goTitle.textContent = (mode.id === 'statham') ? 'ОДНА ОШИБКА!' : 'ИГРА ОКОНЧЕНА';
+  if (goQuote) goQuote.innerHTML = mode.quote;
+  if (goScore) goScore.textContent = gameScore;
+  if (goMaxCombo) goMaxCombo.textContent = maxComboAchieved;
+  if (goMode) goMode.textContent = mode.name;
+
+  if (goModal) goModal.classList.remove('hidden');
+}
+
+function triggerVictory() {
+  isGameOver = true;
+  const goModal = document.getElementById('gameOverModal');
+  const goIcon = document.getElementById('goIcon');
+  const goTitle = document.getElementById('goTitle');
+  const goQuote = document.getElementById('goQuote');
+  const goScore = document.getElementById('goScore');
+  const goMaxCombo = document.getElementById('goMaxCombo');
+  const goMode = document.getElementById('goMode');
+
+  const mode = GAME_MODES[currentMode] || GAME_MODES.cowboy;
+
+  if (goIcon) goIcon.textContent = '🏆';
+  if (goTitle) goTitle.textContent = 'ТРЕК ПРОЙДЕН!';
+  if (goQuote) {
+    if (mode.id === 'statham') {
+      goQuote.innerHTML = '«Безупречно. Ты не ошибся ни разу.»<br><span style="font-size:0.75rem;opacity:0.8">— Джейсон Стэтхем</span>';
+    } else if (mode.id === 'cowboy') {
+      goQuote.innerHTML = '«Самый быстрый стрелок на Западе!»';
+    } else {
+      goQuote.innerHTML = '«Полная гармония и дзеновское спокойствие.»';
+    }
+  }
+  if (goScore) goScore.textContent = gameScore;
+  if (goMaxCombo) goMaxCombo.textContent = maxComboAchieved;
+  if (goMode) goMode.textContent = mode.name;
+
+  if (goModal) goModal.classList.remove('hidden');
+}
+
+function resetGameState() {
+  gameScore = 0;
+  gameCombo = 0;
+  maxComboAchieved = 0;
+  cowboyMissStreak = 0;
+  isGameOver = false;
+  noteHitStates = {};
+  activeChartStartIndex = 0;
+  hitEffects = [];
+  updateTopBarStats();
+}
+
+function startFreshGame() {
+  resetGameState();
+  const goModal = document.getElementById('gameOverModal');
+  if (goModal) goModal.classList.add('hidden');
+  const mainMenu = document.getElementById('gameMainMenu');
+  if (mainMenu) mainMenu.classList.add('hidden');
+
+  audioPlayer.currentTime = 0;
+  initGameWebAudio();
+  if (gameAudioCtx && gameAudioCtx.state === 'suspended') gameAudioCtx.resume();
+  audioPlayer.play().catch(e => console.warn("Audio play prevented:", e));
+  btnPlayPause.textContent = "⏸";
 }
 
 let isRecordingVibe = false;
@@ -404,6 +606,7 @@ function setupAudioPlayer() {
   audioPlayer.addEventListener('pause', () => {
     btnPlayPause.textContent = "▶";
   });
+  audioPlayer.addEventListener('ended', triggerVictory);
 
   audioPlayer.addEventListener('seeking', () => {
     activeChartStartIndex = 0;
@@ -560,7 +763,15 @@ function setupVibeRecordingControls() {
 
     if (KEY_LANE_MAP.hasOwnProperty(e.key)) {
       const lane = KEY_LANE_MAP[e.key];
-      recordUserTap(lane);
+      if (isRecordingVibe) {
+        recordUserTap(lane);
+      } else {
+        if (mobileGameCanvas && !isGameOver) {
+          const height = mobileGameCanvas.height;
+          const laneWidth = mobileGameCanvas.width / 4;
+          checkTileHit(lane, height * 0.75, height, laneWidth);
+        }
+      }
     }
   });
 }
@@ -671,7 +882,10 @@ function setupMobileControls() {
 
   const handlePointerDown = (e) => {
     e.preventDefault();
+    if (isGameOver) return;
     if (audioPlayer.paused) {
+      initGameWebAudio();
+      if (gameAudioCtx && gameAudioCtx.state === 'suspended') gameAudioCtx.resume();
       audioPlayer.play();
       btnPlayPause.textContent = "⏸";
     }
@@ -701,30 +915,30 @@ function setupMobileControls() {
  * Checks if a falling tile was tapped in `clickedLane` strictly inside its bounding box
  */
 function checkTileHit(lane, touchY, height, laneWidth) {
-  if (!analysisData || !analysisData.chart) return;
+  if (isGameOver || !analysisData || !analysisData.chart) return;
   const chart = analysisData.chart;
-  const curTime = audioPlayer.currentTime || 0;
-  const yHit = height * 0.75; // Hit Target Line at 75% screen height (shifted down by 1/4 screen)
+  const curTime = audioPlayer ? (audioPlayer.currentTime || 0) : 0;
+  const yHit = height * 0.75; // Hit Target Line at 75% screen height
 
   const speedMultiplier = getCurrentSpeedMultiplier(curTime);
   const secPerNote = 1.0 / speedMultiplier;
   const speed = yHit / secPerNote;
-  // 🎹 Tile Height: exactly ~5 tiles fit vertically on the screen (height / 5.2), regardless of speed
   const tileHeight = height / 5.2;
 
   let closestNoteIndex = -1;
   let minDistance = 999999;
 
-  for (let i = 0; i < chart.length; i++) {
+  const searchStart = Math.max(0, activeChartStartIndex);
+  for (let i = searchStart; i < chart.length; i++) {
     const note = chart[i];
+    if (note.time > curTime + 0.6) break;
     if (note.lane !== lane) continue;
-    if (noteHitStates[i]) continue; // Already hit
+    if (noteHitStates[i]) continue; // Already hit or missed
 
     const dtStart = note.time - curTime;
     const yCenter = yHit - (dtStart * speed);
     const yTop = yCenter - tileHeight / 2;
     const yBottom = yCenter + tileHeight / 2;
-
     const absTimeDiff = Math.abs(dtStart);
 
     // High Sensitivity Touch Detection:
@@ -745,22 +959,38 @@ function checkTileHit(lane, touchY, height, laneWidth) {
     noteHitStates[closestNoteIndex] = true;
     const note = chart[closestNoteIndex];
     const dtHit = Math.abs(note.time - curTime);
+    const isPerfect = (dtHit <= 0.085);
 
-    let scoreAdd = 100;
-    let ratingText = "+100 PERFECT!";
-    if (dtHit <= 0.085) {
-      scoreAdd = 100;
-      ratingText = "+100 PERFECT!";
-    } else if (dtHit <= 0.160) {
-      scoreAdd = 70;
-      ratingText = "+70 GREAT!";
-    } else {
-      scoreAdd = 40;
-      ratingText = "+40 GOOD";
+    gameCombo += 1;
+    if (gameCombo > maxComboAchieved) {
+      maxComboAchieved = gameCombo;
     }
 
-    gameScore += scoreAdd;
-    gameCombo += 1;
+    let points = 0;
+    let ratingText = '';
+
+    if (currentMode === 'cowboy') {
+      cowboyMissStreak = 0; // Hit resets miss streak
+      const mult = getActiveMultiplier(curTime);
+      const baseHit = 1 * mult;
+      const perfectBonus = isPerfect ? 3 : 0;
+      points = baseHit + perfectBonus;
+      ratingText = isPerfect ? `+${points} ПЕРФЕКТ!` : (mult > 0 ? `+${points}` : `+0`);
+    } else if (currentMode === 'statham') {
+      const mult = getActiveMultiplier(curTime);
+      const baseHit = Math.round(1 * mult);
+      const perfectBonus = isPerfect ? 8 : 0;
+      points = baseHit + perfectBonus;
+      ratingText = isPerfect ? `+${points} ПЕРФЕКТ!` : `+${points}`;
+    } else if (currentMode === 'zen') {
+      const mult = getActiveMultiplier(curTime);
+      const baseHit = Math.round(mult);
+      const perfectBonus = isPerfect ? 2 : 0;
+      points = baseHit + perfectBonus;
+      ratingText = isPerfect ? `+${points} ПЕРФЕКТ!` : `+${points}`;
+    }
+
+    gameScore += points;
 
     const xCenter = (lane + 0.5) * laneWidth;
     const yExplosion = (touchY !== undefined && touchY > 0) ? touchY : yHit;
@@ -773,25 +1003,64 @@ function checkTileHit(lane, touchY, height, laneWidth) {
       x: xCenter,
       y: yExplosion - 20,
       text: ratingText,
-      color: BAND_COLORS[lane],
+      color: isPerfect ? '#38bdf8' : BAND_COLORS[lane],
       life: 1.0
     });
 
+    updateTopBarStats();
+
   } else {
-    // Tap on empty space: Reset combo & create red miss indicator
+    // Tap on empty space: misclick!
+    handleMiss(lane, 'ПРОМАХ', touchY);
+  }
+}
+
+function handleMiss(lane, reason = 'ПРОМАХ', touchY = null) {
+  if (isGameOver) return;
+
+  const yHit = mobileGameCanvas ? mobileGameCanvas.height * 0.75 : 300;
+  const laneWidth = mobileGameCanvas ? mobileGameCanvas.width / 4 : 80;
+  const xCenter = (lane + 0.5) * laneWidth;
+  const yDisplay = (touchY !== null && touchY > 0) ? touchY : yHit;
+
+  if (currentMode === 'statham') {
+    // 💀 Statham: One mistake - and you made a mistake! IMMEDIATE GAME OVER
     gameCombo = 0;
-    const xCenter = (lane + 0.5) * laneWidth;
-    hitEffects.push({
-      x: xCenter,
-      y: touchY,
-      text: "MISS",
-      color: "#f43f5e",
-      life: 0.6
-    });
+    triggerGameOver('statham', reason === 'НЕ КЛИК' ? 'Пропущена плитка!' : 'Промах!');
+    return;
   }
 
-  if (gameScoreText) gameScoreText.textContent = `SCORE: ${gameScore}`;
-  if (gameComboText) gameComboText.textContent = `COMBO x${gameCombo}`;
+  gameCombo = 0;
+
+  let penalty = 0;
+  let penaltyText = '';
+
+  if (currentMode === 'cowboy') {
+    cowboyMissStreak += 1;
+    const missMultiplier = Math.min(10, cowboyMissStreak);
+    penalty = 2 * missMultiplier;
+    gameScore = Math.max(0, gameScore - penalty);
+    penaltyText = `${reason} -${penalty}${cowboyMissStreak > 1 ? ` (x${missMultiplier})` : ''}`;
+  } else if (currentMode === 'zen') {
+    const curTime = audioPlayer ? (audioPlayer.currentTime || 0) : 0;
+    const speed = getCurrentSpeedMultiplier(curTime);
+    const mult = speed * 3;
+    // Miss penalty = half of hit value rounded up
+    penalty = Math.ceil(Math.round(mult) / 2);
+    gameScore = Math.max(0, gameScore - penalty);
+    penaltyText = `${reason} -${penalty}`;
+  }
+
+  // Floating red penalty text
+  hitEffects.push({
+    x: xCenter,
+    y: yDisplay - 10,
+    text: penaltyText,
+    color: '#f43f5e',
+    life: 0.9
+  });
+
+  updateTopBarStats();
 }
 
 function createHitParticles(x, y, color) {
@@ -962,13 +1231,22 @@ function renderMobilePlayableGame(curTime) {
     const maxTime = curTime + dtLookahead + 0.1;
 
     for (let i = 0; i < chart.length; i++) {
-      if (noteHitStates[i]) continue; // Tile disappeared on hit!
-
       const note = chart[i];
       const tStart = note.time;
 
       if (tStart < minTime) continue;
       if (tStart > maxTime) break;
+
+      // ⚠️ Check if tile fell past the hit zone without being tapped (missed tile)
+      if (!noteHitStates[i] && curTime > tStart + 0.220) {
+        if (!audioPlayer.paused && !isGameOver) {
+          noteHitStates[i] = 'missed';
+          handleMiss(note.lane, 'НЕ КЛИК');
+          if (isGameOver) break;
+        }
+      }
+
+      if (noteHitStates[i]) continue; // Tile disappeared on hit or missed!
 
       const lane = note.lane;
       const xLeft = lane * laneWidth + 4;
@@ -983,6 +1261,11 @@ function renderMobilePlayableGame(curTime) {
         drawVerticalTilePill(mobileCtx, xLeft, yStart - tileHeight / 2, actualTileWidth, tileHeight, color);
       }
     }
+  }
+
+  // Periodic HUD update (keeps mult & combo in sync)
+  if (frameCount % 4 === 0) {
+    updateTopBarStats();
   }
 
   // 4. Update and Render Hit Particle Effects & Floating Rating Text

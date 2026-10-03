@@ -28,6 +28,7 @@
         <div class="header-center">
           <span class="game-score-badge" id="gameScoreText">SCORE: 0</span>
           <span class="game-combo-badge" id="gameComboText">COMBO x0</span>
+          <span class="game-mult-badge" id="gameMultText">x1</span>
         </div>
 
         <div class="header-right">
@@ -45,7 +46,7 @@
       <audio id="audioPlayer" src=""></audio>
     </main>
 
-    <!-- 🎮 MAIN MENU OVERLAY / TRACK SELECTOR -->
+    <!-- 🎮 MAIN MENU OVERLAY / TRACK & MODE SELECTOR -->
     <div class="game-main-menu-overlay" id="gameMainMenu">
       <div class="game-menu-card">
         <!-- Logo / Title -->
@@ -59,7 +60,7 @@
         <div class="menu-track-section">
           <div class="menu-section-header">
             <span class="menu-section-title">🎵 ВЫБОР ТРЕКА</span>
-            <span class="menu-track-count">1 трек доступен</span>
+            <span class="menu-track-count">1 трек</span>
           </div>
 
           <!-- Track List (Currently 1 track) -->
@@ -67,20 +68,84 @@
             <div class="track-item selected" id="trackItemMain">
               <div class="track-cover-box">
                 <span class="track-cover-icon">⚡</span>
-                <span class="track-level-tag">HARD</span>
+                <span class="track-level-tag">BEAT</span>
               </div>
               <div class="track-info">
                 <h3 class="track-title" id="menuTrackTitle">Test Music</h3>
-                <p class="track-artist">Full Spectral Flux Groove</p>
+                <p class="track-artist">Full Spectral Flux Rhythm</p>
                 <div class="track-badges">
                   <span class="t-badge" id="menuTrackDuration">⏱ 03:39</span>
                   <span class="t-badge notes-badge" id="menuTrackNotes">🎹 947 нот</span>
-                  <span class="t-badge speed-badge">🚀 2.0x ➔ 3.5x</span>
+                  <span class="t-badge speed-badge" id="menuTrackSpeedBadge">🚀 2.0x ➔ 3.5x</span>
                 </div>
               </div>
               <div class="track-action-indicator">
                 <span class="play-arrow">▶</span>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Mode Selection Section -->
+        <div class="menu-mode-section">
+          <div class="menu-section-header">
+            <span class="menu-section-title">⚔️ ВЫБОР РЕЖИМА</span>
+            <span class="menu-track-count" id="menuSelectedModeTag">🤠 Ковбой</span>
+          </div>
+
+          <div class="menu-modes-grid" id="modesListContainer">
+            <!-- 1. Ковбой -->
+            <div class="mode-item selected" data-mode="cowboy">
+              <div class="mode-icon-box">🤠</div>
+              <div class="mode-info">
+                <div class="mode-header-line">
+                  <h4 class="mode-title">Ковбой</h4>
+                  <span class="mode-speed-tag">⚡ 2.0x ➔ 3.5x</span>
+                </div>
+                <p class="mode-desc">Самые быстрые пальцы на Диком Западе</p>
+                <div class="mode-rules-tags">
+                  <span class="m-rule">📈 Фибоначчи до x10</span>
+                  <span class="m-rule">🎯 Перфект +3</span>
+                  <span class="m-rule">⚠️ Штраф за промахи</span>
+                </div>
+              </div>
+              <div class="mode-check-indicator">✓</div>
+            </div>
+
+            <!-- 2. Стэтхем -->
+            <div class="mode-item" data-mode="statham">
+              <div class="mode-icon-box">🗿</div>
+              <div class="mode-info">
+                <div class="mode-header-line">
+                  <h4 class="mode-title">Стэтхем</h4>
+                  <span class="mode-speed-tag">⚡ 1.5x ➔ 2.5x</span>
+                </div>
+                <p class="mode-desc">«Одна ошибка — и ты ошибся»</p>
+                <div class="mode-rules-tags">
+                  <span class="m-rule">💀 1 ошибка = Game Over</span>
+                  <span class="m-rule">📈 Фибоначчи (+0.5)</span>
+                  <span class="m-rule">✨ Перфект +8</span>
+                </div>
+              </div>
+              <div class="mode-check-indicator">✓</div>
+            </div>
+
+            <!-- 3. Дзен -->
+            <div class="mode-item" data-mode="zen">
+              <div class="mode-icon-box">🧘</div>
+              <div class="mode-info">
+                <div class="mode-header-line">
+                  <h4 class="mode-title">Дзен</h4>
+                  <span class="mode-speed-tag">⚡ 1.0x ➔ 5.0x</span>
+                </div>
+                <p class="mode-desc">Тише едешь — дальше будешь</p>
+                <div class="mode-rules-tags">
+                  <span class="m-rule">☯️ Множитель = Скорость × 3</span>
+                  <span class="m-rule">✨ Перфект +2</span>
+                  <span class="m-rule">⚖️ Промах = 1/2 попадания</span>
+                </div>
+              </div>
+              <div class="mode-check-indicator">✓</div>
             </div>
           </div>
         </div>
@@ -96,6 +161,33 @@
           <a href="math.html" class="btn-menu-secondary">
             🔬 Режим Анализа (Math DSP)
           </a>
+        </div>
+      </div>
+    </div>
+
+    <!-- 💀 GAME OVER / RESULTS MODAL -->
+    <div class="game-over-overlay hidden" id="gameOverModal">
+      <div class="game-over-card" id="gameOverCard">
+        <div class="game-over-icon" id="goIcon">💀</div>
+        <h2 class="game-over-title" id="goTitle">ИГРА ОКОНЧЕНА</h2>
+        <div class="game-over-quote" id="goQuote">«Одна ошибка — и ты ошибся.»<br><span style="font-size:0.75rem;opacity:0.8">— Джейсон Стэтхем</span></div>
+        <div class="game-over-stats-grid">
+          <div class="go-stat-box">
+            <span class="go-stat-lbl">СЧЁТ</span>
+            <span class="go-stat-val" id="goScore">0</span>
+          </div>
+          <div class="go-stat-box">
+            <span class="go-stat-lbl">МАКС. КОМБО</span>
+            <span class="go-stat-val" id="goMaxCombo">0</span>
+          </div>
+          <div class="go-stat-box">
+            <span class="go-stat-lbl">РЕЖИМ</span>
+            <span class="go-stat-val" id="goMode">Стэтхем</span>
+          </div>
+        </div>
+        <div class="game-over-actions">
+          <button class="btn-game-over-retry" id="btnGoRetry">🔄 Попробовать снова</button>
+          <button class="btn-game-over-menu" id="btnGoMenu">☰ В меню</button>
         </div>
       </div>
     </div>
@@ -187,6 +279,6 @@
     </div>
 
   </div>
-  <script src="game_app.js?v=2.4"></script>
+  <script src="game_app.js?v=2.5"></script>
 </body>
 </html>
