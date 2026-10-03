@@ -126,6 +126,7 @@ async function initDashboard() {
     resizeCanvases();
     setupMetadata();
     setupAudioPlayer();
+    setupMainMenu();
     setupGameFilterControls();
     setupSpeedControls();
     buildOffscreenStaticSpectrogram();
@@ -331,17 +332,54 @@ function onWindowResize() {
   }
 }
 
+const gameMainMenu = document.getElementById('gameMainMenu');
+const btnStartGame = document.getElementById('btnStartGame');
+const btnOpenMenu = document.getElementById('btnOpenMenu');
+const menuTrackTitle = document.getElementById('menuTrackTitle');
+const menuTrackDuration = document.getElementById('menuTrackDuration');
+const menuTrackNotes = document.getElementById('menuTrackNotes');
+
 function setupMetadata() {
-  if (!analysisData || !trackMeta) return;
+  if (!analysisData) return;
   const meta = analysisData.metadata;
   const total = meta.total_notes || (analysisData.chart ? analysisData.chart.length : 0);
 
-  trackMeta.innerHTML = `
-    <span class="meta-tag">🎵 ${meta.title}</span>
-    <span class="meta-tag">⏱ ${meta.duration_sec}с</span>
-    <span class="meta-tag">🎹 4 дорожки (Витерби)</span>
-    <span class="meta-tag">⚡ ${total} нот</span>
-  `;
+  if (menuTrackTitle) menuTrackTitle.textContent = meta.title || "Test Music";
+  if (menuTrackDuration) menuTrackDuration.textContent = `⏱ ${formatTime(meta.duration_sec || 0)}`;
+  if (menuTrackNotes) menuTrackNotes.textContent = `🎹 ${total} нот`;
+
+  if (trackMeta) {
+    trackMeta.innerHTML = `
+      <span class="meta-tag">🎵 ${meta.title}</span>
+      <span class="meta-tag">⏱ ${meta.duration_sec}с</span>
+      <span class="meta-tag">🎹 4 дорожки (Глобальный бит)</span>
+      <span class="meta-tag">⚡ ${total} нот</span>
+    `;
+  }
+}
+
+function setupMainMenu() {
+  if (btnStartGame) {
+    btnStartGame.addEventListener('click', () => {
+      if (gameMainMenu) gameMainMenu.classList.add('hidden');
+      initGameWebAudio();
+      if (gameAudioCtx && gameAudioCtx.state === 'suspended') gameAudioCtx.resume();
+      if (audioPlayer.paused) {
+        audioPlayer.play();
+        btnPlayPause.textContent = "⏸";
+      }
+    });
+  }
+
+  if (btnOpenMenu) {
+    btnOpenMenu.addEventListener('click', () => {
+      if (audioPlayer && !audioPlayer.paused) {
+        audioPlayer.pause();
+        btnPlayPause.textContent = "▶";
+      }
+      if (gameMainMenu) gameMainMenu.classList.remove('hidden');
+    });
+  }
 }
 
 let isRecordingVibe = false;
@@ -566,7 +604,7 @@ function recordUserTap(lane) {
     const height = mobileGameCanvas.height;
     const laneWidth = width / 4;
     const xCenter = (lane + 0.5) * laneWidth;
-    const yHit = height * 0.50;
+    const yHit = height * 0.75;
 
     createHitParticles(xCenter, yHit, BAND_COLORS[lane]);
     hitEffects.push({
@@ -582,7 +620,7 @@ function recordUserTap(lane) {
   if (mobileGameCanvas) {
     const height = mobileGameCanvas.height;
     const laneWidth = mobileGameCanvas.width / 4;
-    checkTileHit(lane, height * 0.50, height, laneWidth);
+    checkTileHit(lane, height * 0.75, height, laneWidth);
   }
 }
 
@@ -666,7 +704,7 @@ function checkTileHit(lane, touchY, height, laneWidth) {
   if (!analysisData || !analysisData.chart) return;
   const chart = analysisData.chart;
   const curTime = audioPlayer.currentTime || 0;
-  const yHit = height * 0.50; // Hit Target Line in EXACT CENTER of screen!
+  const yHit = height * 0.75; // Hit Target Line at 75% screen height (shifted down by 1/4 screen)
 
   const speedMultiplier = getCurrentSpeedMultiplier(curTime);
   const secPerNote = 1.0 / speedMultiplier;
@@ -864,7 +902,7 @@ function renderMobilePlayableGame(curTime) {
   mobileCtx.clearRect(0, 0, width, height);
 
   const laneWidth = width / 4;
-  const yHit = height * 0.50; // Hit Target Line in EXACT CENTER of screen!
+  const yHit = height * 0.75; // Hit Target Line at 75% screen height (shifted down by 1/4 screen)
   const speedMultiplier = getCurrentSpeedMultiplier(curTime);
   const secPerNote = 1.0 / speedMultiplier;
   const speed = yHit / secPerNote;

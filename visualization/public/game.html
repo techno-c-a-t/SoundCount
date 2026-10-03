@@ -12,7 +12,7 @@
 <body class="mobile-game-mode">
   <div class="mobile-app-wrapper">
     
-    <!-- 📱 TOP PROGRESS & SCORE BAR (Minimal Full-Width Header) -->
+    <!-- 📱 TOP PROGRESS & SCORE BAR (Clean Minimal Header: Score, Combo, FPS) -->
     <header class="mobile-top-bar">
       <!-- Track Progress Fill Bar (Top 3px line) -->
       <div class="track-progress-track">
@@ -31,37 +31,9 @@
         </div>
 
         <div class="header-right">
-          <button id="btnRecMode" class="btn-rec">🔴 REC</button>
-          <button id="btnSaveTaps" class="btn-save hidden">💾 Сохранить</button>
           <span class="fps-tag" id="fpsTag">⚡ 60 FPS</span>
-          <a href="math.html" class="btn-toggle-view" title="Переключить в режим Чистой Математики">🔬 Math</a>
+          <button id="btnOpenMenu" class="btn-menu-touch" title="Главное меню">☰ Меню</button>
         </div>
-      </div>
-      
-      <!-- Recording Status Indicator Banner -->
-      <div class="rec-banner hidden" id="recBanner">
-        <span class="rec-dot-blink">●</span>
-        <span>ИДЕТ ЗАПИСЬ ОЩУЩЕНИЙ (ТЭППИНГ ПО ВАЙБУ). Нажимайте по дорожкам! (ПК: D, F, J, K)</span>
-        <span class="rec-count" id="recCountText">0 нот</span>
-      </div>
-
-      <!-- 🎛️ Real-Time Frequency Isolation Filter Strip -->
-      <div class="game-filter-strip">
-        <span class="game-filter-lbl">🎛️ Диапазон игры и звука:</span>
-        <button class="game-filter-btn active" id="btnGameFilterAll" data-low="20" data-high="11025">🌐 Весь трек</button>
-        <button class="game-filter-btn" id="btnGameFilterBass" data-low="30" data-high="250">🎸 Только Бас (30-250 Гц)</button>
-        <button class="game-filter-btn" id="btnGameFilterMids" data-low="250" data-high="2500">🎤 Вокал / Соло (250-2500 Гц)</button>
-        <button class="game-filter-btn" id="btnGameFilterHighs" data-low="2500" data-high="11025">✨ Высокие (2.5-11 кГц)</button>
-      </div>
-
-      <!-- ⚡ Speed Selector Strip (Default Dynamic 2.0x -> 3.5x) -->
-      <div class="game-speed-strip">
-        <span class="game-speed-lbl" id="gameSpeedLbl">⚡ Скорость: 2.0x</span>
-        <button class="game-speed-btn active" data-speed="dynamic">✨ Авто (2x ➔ 3.5x)</button>
-        <button class="game-speed-btn" data-speed="2.0">2.0x</button>
-        <button class="game-speed-btn" data-speed="2.75">2.75x</button>
-        <button class="game-speed-btn" data-speed="3.5">3.5x</button>
-        <button class="game-speed-btn" data-speed="5.0">5.0x</button>
       </div>
     </header>
 
@@ -72,6 +44,61 @@
       <!-- Audio Element -->
       <audio id="audioPlayer" src=""></audio>
     </main>
+
+    <!-- 🎮 MAIN MENU OVERLAY / TRACK SELECTOR -->
+    <div class="game-main-menu-overlay" id="gameMainMenu">
+      <div class="game-menu-card">
+        <!-- Logo / Title -->
+        <div class="menu-brand">
+          <div class="menu-logo-badge">🎹</div>
+          <h1 class="menu-title">SOUNDCOUNT</h1>
+          <p class="menu-subtitle">Mobile Piano Tiles & Beat Engine</p>
+        </div>
+
+        <!-- Track Selection Container -->
+        <div class="menu-track-section">
+          <div class="menu-section-header">
+            <span class="menu-section-title">🎵 ВЫБОР ТРЕКА</span>
+            <span class="menu-track-count">1 трек доступен</span>
+          </div>
+
+          <!-- Track List (Currently 1 track) -->
+          <div class="track-list" id="trackListContainer">
+            <div class="track-item selected" id="trackItemMain">
+              <div class="track-cover-box">
+                <span class="track-cover-icon">⚡</span>
+                <span class="track-level-tag">HARD</span>
+              </div>
+              <div class="track-info">
+                <h3 class="track-title" id="menuTrackTitle">Test Music</h3>
+                <p class="track-artist">Full Spectral Flux Groove</p>
+                <div class="track-badges">
+                  <span class="t-badge" id="menuTrackDuration">⏱ 03:39</span>
+                  <span class="t-badge notes-badge" id="menuTrackNotes">🎹 947 нот</span>
+                  <span class="t-badge speed-badge">🚀 2.0x ➔ 3.5x</span>
+                </div>
+              </div>
+              <div class="track-action-indicator">
+                <span class="play-arrow">▶</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Start Game CTA Button -->
+        <button class="btn-menu-start-game" id="btnStartGame">
+          <span class="btn-start-icon">▶</span>
+          <span class="btn-start-text">ИГРАТЬ</span>
+        </button>
+
+        <!-- Secondary Link -->
+        <div class="menu-secondary-actions">
+          <a href="math.html" class="btn-menu-secondary">
+            🔬 Режим Анализа (Math DSP)
+          </a>
+        </div>
+      </div>
+    </div>
 
     <!-- 📊 DSP DASHBOARD SECTION (Collapsible Analytics Mode) -->
     <div class="dsp-dashboard-container hidden" id="dspDashboardContainer">
@@ -160,6 +187,6 @@
     </div>
 
   </div>
-  <script src="game_app.js?v=2.3"></script>
+  <script src="game_app.js?v=2.4"></script>
 </body>
 </html>
