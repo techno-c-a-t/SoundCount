@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SoundCount: Mobile Piano Tiles Game Engine</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="mobile-game-mode">
+  <div class="mobile-app-wrapper">
+    
+    <!-- 📱 TOP PROGRESS & SCORE BAR (Minimal Full-Width Header) -->
+    <header class="mobile-top-bar">
+      <!-- Track Progress Fill Bar (Top 3px line) -->
+      <div class="track-progress-track">
+        <div class="track-progress-fill" id="trackProgressFill"></div>
+      </div>
+
+      <div class="mobile-header-content">
+        <div class="header-left">
+          <button id="btnPlayPause" class="btn-play-touch">▶</button>
+          <span class="time-display" id="timeDisplay">00:00 / 00:00</span>
+        </div>
+
+        <div class="header-center">
+          <span class="game-score-badge" id="gameScoreText">SCORE: 0</span>
+          <span class="game-combo-badge" id="gameComboText">COMBO x0</span>
+        </div>
+
+        <div class="header-right">
+          <button id="btnRecMode" class="btn-rec">🔴 REC</button>
+          <button id="btnSaveTaps" class="btn-save hidden">💾 Сохранить</button>
+          <span class="fps-tag" id="fpsTag">⚡ 60 FPS</span>
+          <a href="math.html" class="btn-toggle-view" title="Переключить в режим Чистой Математики">🔬 Math</a>
+        </div>
+      </div>
+      
+      <!-- Recording Status Indicator Banner -->
+      <div class="rec-banner hidden" id="recBanner">
+        <span class="rec-dot-blink">●</span>
+        <span>ИДЕТ ЗАПИСЬ ОЩУЩЕНИЙ (ТЭППИНГ ПО ВАЙБУ). Нажимайте по дорожкам! (ПК: D, F, J, K)</span>
+        <span class="rec-count" id="recCountText">0 нот</span>
+      </div>
+    </header>
+
+    <!-- 🎮 MAIN PLAYABLE MOBILE CANVAS (Vertical Falling Tiles, Full Screen Width) -->
+    <main class="mobile-game-container" id="mobileGameContainer">
+      <canvas id="mobileGameCanvas"></canvas>
+      
+      <!-- Audio Element -->
+      <audio id="audioPlayer" src=""></audio>
+    </main>
+
+    <!-- 📊 DSP DASHBOARD SECTION (Collapsible Analytics Mode) -->
+    <div class="dsp-dashboard-container hidden" id="dspDashboardContainer">
+      <header class="app-header">
+        <div class="logo">
+          <span class="logo-icon">🎵</span>
+          <h1>SoundCount <span class="badge">DSP & Analysis Engine</span></h1>
+        </div>
+        <div class="track-meta" id="trackMeta">
+          <span class="meta-tag">Загрузка данных...</span>
+        </div>
+      </header>
+
+      <!-- Real-time Performance Profiler & Trace Breakdown HUD -->
+      <section class="trace-hud-card" id="traceHudCard">
+        <div class="trace-hud-header">
+          <span class="trace-title">🔬 Real-time Performance Profiler & Trace Breakdown</span>
+          <span class="trace-budget-info">Бюджет кадра: 16.6 ms (1000ms / 60)</span>
+        </div>
+        <div class="trace-grid">
+          <div class="trace-box" id="boxPiano">
+            <span class="trace-num" id="tracePiano">0.00 ms</span>
+            <span class="trace-lbl">🎮 Piano Game</span>
+          </div>
+          <div class="trace-box" id="boxSlice">
+            <span class="trace-num" id="traceSlice">0.00 ms</span>
+            <span class="trace-lbl">📊 Live Slice</span>
+          </div>
+          <div class="trace-box" id="boxPlayhead">
+            <span class="trace-num" id="tracePlayhead">0.00 ms</span>
+            <span class="trace-lbl">📍 Playheads</span>
+          </div>
+          <div class="trace-box" id="boxDom">
+            <span class="trace-num" id="traceDom">0.00 ms</span>
+            <span class="trace-lbl">⚙️ DOM Updates</span>
+          </div>
+          <div class="trace-box highlight" id="boxTotal">
+            <span class="trace-num" id="traceTotal">0.00 ms</span>
+            <span class="trace-lbl">⚡ Total Frame JS</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Legacy 4-Lane Horizontal Visualizer -->
+      <section class="card gameplay-card">
+        <div class="card-header">
+          <h2>🎮 Горизонтальный Просмотрчик</h2>
+        </div>
+        <div class="canvas-wrapper">
+          <canvas id="pianoLanesCanvas" height="180"></canvas>
+        </div>
+      </section>
+
+      <!-- Main Grid: Static vs Dynamic -->
+      <main class="dashboard-grid">
+        <section class="card static-panel">
+          <div class="card-header">
+            <h2>📊 Спектральный Анализ</h2>
+          </div>
+          <div class="canvas-wrapper overlay-wrapper">
+            <canvas id="cqtCanvas" height="180"></canvas>
+            <div class="playhead-line" id="cqtPlayhead"></div>
+          </div>
+          <div class="canvas-wrapper overlay-wrapper">
+            <canvas id="noveltyCanvas" height="140"></canvas>
+            <div class="playhead-line" id="noveltyPlayhead"></div>
+          </div>
+        </section>
+
+        <section class="card dynamic-panel">
+          <div class="card-header">
+            <h2>⚡ Срез Кадра (Real-time)</h2>
+            <p class="subtitle" id="currentFrameText">Фрейм m = 0 | t = 0.000 с</p>
+          </div>
+          <div class="canvas-wrapper">
+            <canvas id="sliceCanvas" height="200"></canvas>
+          </div>
+          <div class="multiband-indicators-grid">
+            <div class="onset-indicator-box band-0" id="indBand0"><span class="indicator-dot"></span>🔴 Bass</div>
+            <div class="onset-indicator-box band-1" id="indBand1"><span class="indicator-dot"></span>🟡 Tenor</div>
+            <div class="onset-indicator-box band-2" id="indBand2"><span class="indicator-dot"></span>🟢 Alto</div>
+            <div class="onset-indicator-box band-3" id="indBand3"><span class="indicator-dot"></span>🔵 Soprano</div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+  </div>
+  <script src="game_app.js"></script>
+</body>
+</html>
