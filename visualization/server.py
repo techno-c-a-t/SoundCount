@@ -20,12 +20,14 @@ DATA_INPUT_DIR = os.path.join(PROJECT_ROOT, "data", "input")
 
 class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def translate_path(self, path):
+        # Strip query parameters and fragment before mapping to file
+        clean_path = path.split("?", 1)[0].split("#", 1)[0]
         # Route audio file requests /audio/filename -> data/input/filename
-        if path.startswith("/audio/"):
-            audio_filename = path.replace("/audio/", "")
+        if clean_path.startswith("/audio/"):
+            audio_filename = clean_path.replace("/audio/", "")
             return os.path.join(DATA_INPUT_DIR, audio_filename)
         # Route all static web files to visualization/public/
-        req_file = path.lstrip("/")
+        req_file = clean_path.lstrip("/")
         if not req_file or req_file == "index.html":
             return os.path.join(PUBLIC_DIR, "index.html")
         return os.path.join(PUBLIC_DIR, req_file)
