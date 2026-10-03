@@ -16,6 +16,7 @@ if PROJECT_ROOT not in sys.path:
 from src.preprocessing import load_audio, apply_bandpass_filter
 from src.parsing import compute_cqt
 from src.novelty.spectral_flux import compute_multiband_spectral_flux
+from src.chart_generator.beat_mapper import generate_piano_chart_from_global_beat
 from src.utils.config import SAMPLE_RATE, HOP_SIZE
 
 DATA_INPUT_DIR = os.path.join(PROJECT_ROOT, "data", "input")
@@ -92,6 +93,16 @@ def recompute_dsp_for_range(f_low: float = 30.0, f_high: float = 2000.0, audio_f
 
     global_name = f"🌐 Весь диапазон ({frequencies[0]:.0f} — {frequencies[-1]:.0f} Гц)"
 
+    # 5. Generate playable 4-lane Piano Gameplay Chart driven by Global Beat
+    chart = generate_piano_chart_from_global_beat(
+        global_peaks_sec=mb_data["global_peaks_sec"],
+        sf_bands=mb_data["sf_bands"],
+        times=times,
+        frequencies=frequencies,
+        S=S,
+        n_lanes=4
+    )
+
     # Prepare serializable response
     return {
         "status": "ok",
@@ -109,7 +120,8 @@ def recompute_dsp_for_range(f_low: float = 30.0, f_high: float = 2000.0, audio_f
             "n_bands": 4,
             "band_names": band_names,
             "band_ranges": band_ranges,
-            "global_band_name": global_name
+            "global_band_name": global_name,
+            "total_notes": len(chart)
         },
         "frequencies": np.round(frequencies, 1).tolist(),
         "times": np.round(times, 3).tolist(),
@@ -128,5 +140,6 @@ def recompute_dsp_for_range(f_low: float = 30.0, f_high: float = 2000.0, audio_f
             "peaks_sec_bands": [np.round(p, 3).tolist() for p in mb_data["peaks_sec_bands"]],
             "merged_peaks_sec": np.round(mb_data["merged_peaks_sec"], 3).tolist(),
             "global_peaks_sec": np.round(mb_data["global_peaks_sec"], 3).tolist()
-        }
+        },
+        "chart": chart
     }

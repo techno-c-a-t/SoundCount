@@ -103,6 +103,7 @@ async function initDashboard() {
     const response = await fetch('/analysis.json');
     if (!response.ok) throw new Error("Could not load analysis.json");
     analysisData = await response.json();
+    rebuildPianoChartFromGlobalBeat();
     rawFullChart = JSON.parse(JSON.stringify(analysisData.chart || []));
 
     preprocessBlockedBins();
@@ -127,6 +128,112 @@ async function initDashboard() {
       trackMeta.innerHTML = `<span style="color: #f43f5e">Ошибка: ${err.message}. Запустите data_exporter.py!</span>`;
     }
   }
+}
+
+/**
+ * Generates an alternating, playable 4-lane piano chart from the Global Beat skeleton
+ */
+function rebuildPianoChartFromGlobalBeat() {
+  if (!analysisData) return;
+  const globalPeaks = (analysisData.global_track && analysisData.global_track.peaks_sec) ||
+    analysisData.peaks_sec || [];
+  if (!globalPeaks.length) return;
+
+  const sfBands = analysisData.multiband ? analysisData.multiband.sf_bands : null;
+  const sampleRate = (analysisData.metadata && analysisData.metadata.sample_rate) || 22050;
+  const hopLength = (analysisData.metadata && analysisData.metadata.hop_length) || 512;
+  const hopSec = hopLength / sampleRate;
+  const nFrames = (analysisData.metadata && analysisData.metadata.n_frames) || (sfBands ? sfBands[0].length : 1000);
+  const frequencies = analysisData.frequencies || [];
+
+  const minDtDebounce = 0.080;
+  const rapidDtThreshold = 0.220;
+
+  // Step 1: Debounce acoustic flutter (< 80ms)
+  const debouncedPeaks = [];
+  for (let i = 0; i < globalPeaks.length; i++) {
+    const p = globalPeaks[i];
+    if (debouncedPeaks.length === 0 || (p - debouncedPeaks[debouncedPeaks.length - 1]) >= minDtDebounce) {
+      debouncedPeaks.push(p);
+    }
+  }
+
+  const chart = [];
+  let prevLane = 1;
+  let prevTime = -999.0;
+  let altDirection = 1;
+
+  for (let i = 0; i < debouncedPeaks.length; i++) {
+    const tPeak = debouncedPeaks[i];
+    const dt = tPeak - prevTime;
+    const frameIdx = Math.min(nFrames - 1, Math.max(0, Math.round(tPeak / hopSec)));
+
+    let primaryBand = 1;
+    let sortedBands = [0, 1, 2, 3];
+
+    if (sfBands && sfBands.length >= 4) {
+      const bFlux = [
+        sfBands[0][frameIdx] || 0,
+        sfBands[1][frameIdx] || 0,
+        sfBands[2][frameIdx] || 0,
+        sfBands[3][frameIdx] || 0
+      ];
+      let maxVal = -1;
+      for (let b = 0; b < 4; b++) {
+        if (bFlux[b] > maxVal) {
+          maxVal = bFlux[b];
+          primaryBand = b;
+        }
+      }
+      sortedBands = [0, 1, 2, 3].sort((a, b) => (bFlux[b] - bFlux[a]));
+    }
+
+    let assignedLane = primaryBand;
+
+    // ПЕРЕКИДЫВАНИЕ (Alternation / Anti-Repetition Rule):
+    if (dt < rapidDtThreshold) {
+      if (primaryBand === prevLane) {
+        const secondBest = sortedBands[1];
+        if (secondBest !== undefined && secondBest !== prevLane) {
+          assignedLane = secondBest;
+        } else {
+          if (prevLane === 0) {
+            assignedLane = 1;
+            altDirection = 1;
+          } else if (prevLane === 3) {
+            assignedLane = 2;
+            altDirection = -1;
+          } else {
+            assignedLane = prevLane + altDirection;
+            if (assignedLane < 0 || assignedLane > 3) {
+              altDirection = -altDirection;
+              assignedLane = prevLane + altDirection;
+            }
+          }
+        }
+      } else {
+        assignedLane = primaryBand;
+      }
+    } else {
+      assignedLane = primaryBand;
+    }
+
+    const domFreq = (frequencies.length > 0) ? (frequencies[assignedLane * Math.floor(frequencies.length / 4)] || 440) : 440;
+
+    chart.push({
+      time: Math.round(tPeak * 1000) / 1000,
+      lane: assignedLane,
+      type: "tap",
+      duration: 0.0,
+      freq: Math.round(domFreq * 10) / 10,
+      amplitude: 1.0
+    });
+
+    prevLane = assignedLane;
+    prevTime = tPeak;
+  }
+
+  analysisData.chart = chart;
 }
 
 function preprocessChartTileHeights() {
@@ -549,13 +656,14 @@ function checkTileHit(lane, touchY, height, laneWidth) {
     const yTop = yCenter - tileHeight / 2;
     const yBottom = yCenter + tileHeight / 2;
 
-    // Strict bounding-box check: touchY must be ON the tile or within 35px hit window near target line
-    const isTouchOnTile = (touchY >= yTop - 35 && touchY <= yBottom + 35);
+    const absTimeDiff = Math.abs(dtStart);
+
+    // Hybrid check: direct touch on falling tile OR time window near hit line (|dt| <= 160ms)
+    const isTouchOnTile = (touchY >= yTop - 35 && touchY <= yBottom + 35) || (absTimeDiff <= 0.160);
 
     if (isTouchOnTile) {
-      const dist = Math.abs(touchY - yCenter);
-      if (dist < minDistance) {
-        minDistance = dist;
+      if (absTimeDiff < minDistance) {
+        minDistance = absTimeDiff;
         closestNoteIndex = i;
       }
     }
@@ -565,19 +673,35 @@ function checkTileHit(lane, touchY, height, laneWidth) {
     // REGISTER HIT!
     noteHitStates[closestNoteIndex] = true;
     const note = chart[closestNoteIndex];
-    gameScore += 100;
+    const dtHit = Math.abs(note.time - curTime);
+
+    let scoreAdd = 100;
+    let ratingText = "+100 PERFECT!";
+    if (dtHit <= 0.065) {
+      scoreAdd = 100;
+      ratingText = "+100 PERFECT!";
+    } else if (dtHit <= 0.125) {
+      scoreAdd = 70;
+      ratingText = "+70 GREAT!";
+    } else {
+      scoreAdd = 40;
+      ratingText = "+40 GOOD";
+    }
+
+    gameScore += scoreAdd;
     gameCombo += 1;
 
     const xCenter = (lane + 0.5) * laneWidth;
+    const yExplosion = (touchY !== undefined && touchY > 0) ? touchY : yHit;
 
     // Spawn hit effect explosion particles
-    createHitParticles(xCenter, touchY, BAND_COLORS[lane]);
+    createHitParticles(xCenter, yExplosion, BAND_COLORS[lane]);
 
-    // Floating text rating (+100 PERFECT)
+    // Floating text rating
     hitEffects.push({
       x: xCenter,
-      y: touchY - 20,
-      text: "+100 PERFECT!",
+      y: yExplosion - 20,
+      text: ratingText,
       color: BAND_COLORS[lane],
       life: 1.0
     });

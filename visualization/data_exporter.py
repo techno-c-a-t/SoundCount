@@ -22,6 +22,7 @@ from src.novelty.complex_domain import compute_complex_domain_novelty
 from src.pitch_detection.event_band_estimator import extract_events_with_corridor_blocking
 from src.pitch_detection.hold_detector import detect_hold_notes
 from src.chart_generator.viterbi_mapper import generate_chart_with_viterbi, generate_relative_pitch_direction_chart
+from src.chart_generator.beat_mapper import generate_piano_chart_from_global_beat
 from src.utils.config import SAMPLE_RATE, HOP_SIZE, CQT_BINS
 
 
@@ -87,8 +88,15 @@ def export_analysis_to_json(audio_path: str, output_json_path: str) -> str:
     print("7. Detecting Hold Notes (> 0.7s sustain)...")
     processed_notes = detect_hold_notes(events, S, times, gamma=0.40, hold_threshold_sec=0.700, sr=sr, hop_length=HOP_SIZE)
 
-    print("8. Generating 4-lane Gameplay Chart via Relative Pitch Direction Mapper...")
-    chart = generate_relative_pitch_direction_chart(processed_notes, n_lanes=4)
+    print("8. Generating 4-lane Piano Gameplay Chart via Global Beat + Alternation...")
+    chart = generate_piano_chart_from_global_beat(
+        global_peaks_sec=mb_data["global_peaks_sec"],
+        sf_bands=mb_data["sf_bands"],
+        times=times,
+        frequencies=frequencies,
+        S=S,
+        n_lanes=4
+    )
 
     taps_count = sum(1 for n in chart if n["type"] == "tap")
     holds_count = sum(1 for n in chart if n["type"] == "hold")
