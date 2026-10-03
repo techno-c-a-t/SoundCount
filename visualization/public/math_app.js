@@ -814,8 +814,6 @@ function renderSlidingNovelty(curTime, xHit, lookaheadSec) {
   const fStart = Math.max(0, Math.floor(tStart / hopSec));
   const fEnd = Math.min(nFrames - 1, Math.ceil(tEnd / hopSec));
 
-  const sfBands = analysisData.multiband.sf_bands;
-  const thBands = analysisData.multiband.thresholds_bands;
   const TOTAL_NOVELTY_LANES = 5;
   const bandHeight = height / TOTAL_NOVELTY_LANES;
 
