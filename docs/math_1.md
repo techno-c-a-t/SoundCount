@@ -92,28 +92,3 @@ $$\delta[m] = \mu[m] + \alpha \cdot \sigma[m] + \beta$$
 $$m(t) = \left\lfloor \frac{t \cdot f_s}{H} \right\rfloor$$
 
 Вектор спектрального среза $\vec{V}(t) = \big( S(m(t), 0), S(m(t), 1), \dots, S(m(t), K-1) \big)$ подается на клиенте в Canvas UI, отрисовывая мгновенную распределенную энергию нот синхронно с воспроизведением трека.
-
----
-
-## 🏗️ Структура Репозитория по Модулям
-
-```
-SoundCount/
-├── src/
-│   ├── preprocessing/       # Разделка треков (.mp3/.m4a -> mono PCM 22050 Гц)
-│   ├── parsing/             # Спектральный анализ (STFT / CQT)
-│   ├── novelty/             # Анализ новизны и атак (Spectral Flux ReLU)
-│   ├── pitch_detection/     # Оценка высоты тона нот
-│   ├── chart_generator/     # Маппинг на 4 дорожки (Алгоритм Витерби)
-│   └── utils/               # Глобальные константы и математические хелперы
-├── visualization/           # Отдельная папка веб-дашборда визуализации
-│   ├── public/              # Фронтенд (Canvas 2D CQT + Динамический срез)
-│   └── data_exporter.py     # Скрипт генерации analysis.json
-├── data/
-│   ├── input/               # Исходные .mp3 / .m4a файлы
-│   └── output/              # Результаты анализа
-├── README.md                # Настоящий документ (Proof of Concept)
-├── ROADMAP.md              # Статический базис проекта
-├── TASKS.md                 # Динамический список задач
-└── IDEAS.md                 # Бэклог будущих фич
-```

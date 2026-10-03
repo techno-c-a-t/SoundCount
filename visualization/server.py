@@ -28,6 +28,24 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             return os.path.join(PUBLIC_DIR, "index.html")
         return os.path.join(PUBLIC_DIR, req_file)
 
+    def do_POST(self):
+        if self.path == "/api/save_taps":
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_length)
+            save_path = os.path.join(DATA_INPUT_DIR, "user_taps.json")
+            with open(save_path, "wb") as f:
+                f.write(post_data)
+            
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.end_headers()
+            self.wfile.write(b'{"status": "ok", "message": "User taps saved successfully!"}')
+            print(f" Saved user tap recording to: {save_path}")
+            return
+        
+        self.send_error(444, "Invalid endpoint")
+
     def end_headers(self):
         # Add CORS and no-cache headers for easy local debugging
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -39,13 +57,30 @@ class ReusableTCPServer(socketserver.TCPServer):
     allow_reuse_address = True
 
 
+import socket
+
+
+def get_local_ip():
+    """Detects primary local IP address (Wi-Fi hotspot / LAN)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception:
+        return "127.0.0.1"
+
+
 def run_server():
     os.chdir(PUBLIC_DIR)
+    local_ip = get_local_ip()
     handler = CustomHTTPRequestHandler
     with ReusableTCPServer(("", PORT), handler) as httpd:
         print(f"\n========================================================")
-        print(f"🚀 SoundCount Visualization Dashboard is running at:")
-        print(f"👉 http://localhost:{PORT}")
+        print(f"🚀 SoundCount Mobile Game & DSP Server is running!")
+        print(f"👉 ПК (локально):  http://localhost:{PORT}")
+        print(f"📱 ТЕЛЕФОН (ТД):   http://{local_ip}:{PORT}")
         print(f"========================================================\n")
         try:
             httpd.serve_forever()

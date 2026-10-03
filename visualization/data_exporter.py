@@ -1,7 +1,8 @@
 """
-Data Exporter: Processes an audio file through the DSP pipeline
-(ingest -> CQT -> Multi-Band Spectral Flux -> Adaptive Peak Picking)
-and exports the full analysis data to JSON format for the visualization web dashboard.
+Data Exporter: Processes an audio file through the full Sprint 1 & Sprint 2 DSP pipeline
+(ingest -> CQT -> Multi-Band Spectral Flux -> Complex Domain Novelty ->
+ Overlapping Bands with Corridor Blocking -> Hold Notes Detection -> Viterbi Lane Mapper)
+and exports full analysis data, blocked corridor mask, and 4-lane gameplay chart to JSON format.
 """
 
 import os
@@ -17,6 +18,10 @@ if PROJECT_ROOT not in sys.path:
 from src.preprocessing import load_audio, save_wav
 from src.parsing import compute_cqt
 from src.novelty.spectral_flux import compute_spectral_flux, pick_peaks, compute_multiband_spectral_flux
+from src.novelty.complex_domain import compute_complex_domain_novelty
+from src.pitch_detection.event_band_estimator import extract_events_with_corridor_blocking
+from src.pitch_detection.hold_detector import detect_hold_notes
+from src.chart_generator.viterbi_mapper import generate_chart_with_viterbi, generate_relative_pitch_direction_chart
 from src.utils.config import SAMPLE_RATE, HOP_SIZE, CQT_BINS
 
 
@@ -53,22 +58,41 @@ def create_synthetic_demo_audio(filename: str = "demo_piano.wav") -> str:
 
 def export_analysis_to_json(audio_path: str, output_json_path: str) -> str:
     """Runs full DSP pipeline on audio_path and writes analysis.json."""
-    print(f"Loading audio from: {audio_path}...")
+    print(f"1. Loading audio from: {audio_path}...")
     y, sr, duration = load_audio(audio_path)
 
-    print("Computing Constant-Q Transform (CQT)...")
+    print("2. Computing Constant-Q Transform (CQT)...")
     cqt_data = compute_cqt(y, sr=sr)
+    C = cqt_data["C"]
     S = cqt_data["S"]
     S_db = cqt_data["S_db"]
     frequencies = cqt_data["frequencies"]
     times = cqt_data["times"]
 
-    print("Computing Global Spectral Flux Novelty (ReLU)...")
+    print("3. Computing Global Spectral Flux Novelty (ReLU)...")
     SF = compute_spectral_flux(S)
     peak_data = pick_peaks(SF, times)
 
-    print("Computing Multi-Band Spectral Flux with 3s Sliding Window Normalization...")
+    print("4. Computing Multi-Band Spectral Flux with 3s Sliding Window Normalization...")
     mb_data = compute_multiband_spectral_flux(S, times, n_bands=4, win_sec=3.0, sr=sr, hop_length=HOP_SIZE)
+
+    print("5. Computing Complex Domain Phase Tracking Novelty...")
+    cd_data = compute_complex_domain_novelty(C, times, win_sec=3.0, sr=sr, hop_length=HOP_SIZE)
+
+    print("6. Extracting Events with Overlapping Bands & Frequency Corridor Blocking...")
+    events, blocked_mask = extract_events_with_corridor_blocking(
+        S, C, times, frequencies, n_bands=4, corridor_ratio=0.20, block_start_sec=1.000, block_end_sec=0.400, sr=sr, hop_length=HOP_SIZE
+    )
+
+    print("7. Detecting Hold Notes (> 0.7s sustain)...")
+    processed_notes = detect_hold_notes(events, S, times, gamma=0.40, hold_threshold_sec=0.700, sr=sr, hop_length=HOP_SIZE)
+
+    print("8. Generating 4-lane Gameplay Chart via Relative Pitch Direction Mapper...")
+    chart = generate_relative_pitch_direction_chart(processed_notes, n_lanes=4)
+
+    taps_count = sum(1 for n in chart if n["type"] == "tap")
+    holds_count = sum(1 for n in chart if n["type"] == "hold")
+    print(f"   Chart generated: {len(chart)} total notes ({taps_count} Taps, {holds_count} Hold Sliders).")
 
     # Prepare serializable arrays
     spectrogram_db_list = np.round(S_db, 2).tolist()
@@ -84,6 +108,13 @@ def export_analysis_to_json(audio_path: str, output_json_path: str) -> str:
     peaks_sec_bands_list = [np.round(p, 3).tolist() for p in mb_data["peaks_sec_bands"]]
     merged_peaks_sec_list = np.round(mb_data["merged_peaks_sec"], 3).tolist()
 
+    # Complex domain serializable arrays
+    cd_norm_list = np.round(cd_data["cd_norm"], 4).tolist()
+    cd_peaks_sec_list = np.round(cd_data["peaks_sec"], 3).tolist()
+
+    # Blocked corridor bins per frame
+    blocked_bins_list = [[int(b) for b in np.where(blocked_mask[:, m])[0]] for m in range(len(times))]
+
     export_payload = {
         "metadata": {
             "title": os.path.basename(audio_path),
@@ -95,7 +126,10 @@ def export_analysis_to_json(audio_path: str, output_json_path: str) -> str:
             "audio_filename": os.path.basename(audio_path),
             "n_bands": 4,
             "band_names": mb_data["band_names"],
-            "band_ranges": mb_data["band_ranges"]
+            "band_ranges": mb_data["band_ranges"],
+            "total_notes": len(chart),
+            "tap_notes_count": taps_count,
+            "hold_notes_count": holds_count
         },
         "frequencies": frequencies_list,
         "times": times_list,
@@ -103,19 +137,23 @@ def export_analysis_to_json(audio_path: str, output_json_path: str) -> str:
         "spectral_flux": spectral_flux_list,
         "threshold": threshold_list,
         "peaks_sec": peaks_sec_list,
+        "complex_domain": cd_norm_list,
+        "cd_peaks_sec": cd_peaks_sec_list,
+        "blocked_bins": blocked_bins_list,
         "multiband": {
             "sf_bands": sf_bands_list,
             "thresholds_bands": thresholds_bands_list,
             "peaks_sec_bands": peaks_sec_bands_list,
             "merged_peaks_sec": merged_peaks_sec_list
-        }
+        },
+        "chart": chart
     }
 
     os.makedirs(os.path.dirname(output_json_path), exist_ok=True)
     with open(output_json_path, "w", encoding="utf-8") as f:
         json.dump(export_payload, f, indent=2)
 
-    print(f"Multi-band analysis successfully exported to: {output_json_path}")
+    print(f"Full Sprint 1 & 2 analysis successfully exported to: {output_json_path}")
     return output_json_path
 
 

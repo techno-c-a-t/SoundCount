@@ -1,0 +1,3 @@
+"""
+Chart generator package.
+"""
