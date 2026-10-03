@@ -31,6 +31,30 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         return os.path.join(PUBLIC_DIR, req_file)
 
     def do_GET(self):
+        if self.path.startswith("/api/recompute_range"):
+            import json
+            from urllib.parse import urlparse, parse_qs
+            query = parse_qs(urlparse(self.path).query)
+            try:
+                f_low = float(query.get("low", [20])[0])
+                f_high = float(query.get("high", [11025])[0])
+                from visualization.range_processor import recompute_dsp_for_range
+                res = recompute_dsp_for_range(f_low, f_high)
+
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode("utf-8"))
+                return
+            except Exception as e:
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Access-Control-Allow-Origin", "*")
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode("utf-8"))
+                return
+
         if self.path.startswith("/api/filter_audio"):
             import json
             from urllib.parse import urlparse, parse_qs
