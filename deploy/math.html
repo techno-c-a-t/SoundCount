@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SoundCount: Чистая Математика ЦОС (Преобразование Фурье & CQT)</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="math-mode-body">
+  <div class="app-container">
+    
+    <!-- 🔬 HEADER & NAVIGATION -->
+    <header class="app-header">
+      <div class="logo">
+        <span class="logo-icon">🔬</span>
+        <h1>SoundCount <span class="badge">Математика ЦОС: Фурье & CQT</span></h1>
+      </div>
+      <div class="header-nav">
+        <a href="math.html" class="nav-btn active">🔬 Math DSP</a>
+        <a href="index.html" class="nav-btn">🎮 Game Engine</a>
+      </div>
+      <div class="track-meta" id="trackMeta">
+        <span class="meta-tag">Загрузка данных трека...</span>
+      </div>
+    </header>
+
+    <!-- 🎵 GLOBAL AUDIO PLAYER & TIMELINE SCRUBBER -->
+    <section class="player-card">
+      <div class="player-controls-row">
+        <div class="player-btn-group">
+          <button id="btnPlayPause" class="btn-primary">▶ Воспроизведение</button>
+          <span class="time-display" id="timeDisplay">00:00.000 / 00:00.000</span>
+        </div>
+        <div class="subtitle" id="currentFrameText">Фрейм m = 0 | t = 0.000 с</div>
+      </div>
+      
+      <!-- Clickable Global Timeline Scrubber Bar -->
+      <div class="global-timeline-wrapper">
+        <div class="global-timeline-track" id="globalTimelineTrack" title="Кликните для перемотки">
+          <div class="global-timeline-fill" id="globalTimelineFill"></div>
+        </div>
+      </div>
+
+      <audio id="audioPlayer" crossOrigin="anonymous"></audio>
+    </section>
+
+    <!-- 🎛️ BANDPASS FILTER & FREQUENCY RANGE ISOLATOR -->
+    <section class="bandpass-filter-card">
+      <div class="filter-header">
+        <div class="filter-header-left">
+          <span class="filter-title">🎛️ Изоляция Частотного Диапазона (Фильтр звука и анализ в реальном времени)</span>
+          <span class="filter-audio-badge bypass" id="filterAudioBadge">🔊 АУДИОФИЛЬТР: ВЫКЛ (Весь спектр)</span>
+        </div>
+        <div class="subtitle" id="filterStatsText">Активны все частоты 20 Гц — 11 025 Гц | Все дорожки и ноты</div>
+      </div>
+
+      <!-- Presets Row -->
+      <div class="filter-presets-row">
+        <button class="filter-preset-btn active" id="btnPresetAll" data-low="20" data-high="11025">🌐 Весь Спектр (Full)</button>
+        <button class="filter-preset-btn" id="btnPresetBass" data-low="30" data-high="250">🎸 Только Бас (30 — 250 Гц)</button>
+        <button class="filter-preset-btn" id="btnPresetMids" data-low="250" data-high="2500">🎤 Вокал / Соло (250 — 2 500 Гц)</button>
+        <button class="filter-preset-btn" id="btnPresetHighs" data-low="2500" data-high="11025">✨ Высокие / Тарелки (2.5 — 11 кГц)</button>
+        <button class="filter-preset-btn" id="btnPresetCustom" data-custom="true">🎚️ Пользовательский</button>
+      </div>
+
+      <!-- Custom Sliders Grid -->
+      <div class="filter-sliders-grid" id="filterSlidersGrid">
+        <div class="slider-group">
+          <div class="slider-header">
+            <span class="slider-lbl">Нижняя частота среза (F min)</span>
+            <span class="slider-val" id="valFlow">20 Гц</span>
+          </div>
+          <input type="range" class="range-slider" id="sliderFlow" min="20" max="4000" step="10" value="20">
+        </div>
+        <div class="slider-group">
+          <div class="slider-header">
+            <span class="slider-lbl">Верхняя частота среза (F max)</span>
+            <span class="slider-val" id="valFhigh" min="100" max="11025" step="50" value="11025">11 025 Гц</span>
+          </div>
+          <input type="range" class="range-slider" id="sliderFhigh" min="100" max="11025" step="50" value="11025">
+        </div>
+      </div>
+
+      <!-- Update Action Row -->
+      <div class="filter-action-row">
+        <span class="filter-action-hint" id="filterActionHint">💡 Выберите диапазон и нажмите кнопку для физической обрезки звука и пересчета 4 дорожек</span>
+        <button class="btn-update-range" id="btnApplyRange">🔄 Применить и пересчитать трек</button>
+      </div>
+    </section>
+
+    <!-- 📊 SYNCHRONIZED SLIDING TIMELINE STACK -->
+
+    
+    <!-- 1. Global + 4 Parallel Raw Spectral Flux Bands (Onsets) -->
+    <section class="card raw-bands-card">
+      <div class="card-header">
+        <h2>📊 1. Глобальная и 4 Параллельные Частотные Дорожки (Чистый Spectral Flux)</h2>
+        <p class="subtitle">🌐 Глобальная дорожка всего обрезанного диапазона + 4 логарифмические подполосы | Маркер на X = 95px</p>
+      </div>
+      <div class="canvas-wrapper">
+        <canvas id="rawBandsCanvas" height="250"></canvas>
+      </div>
+    </section>
+
+    <!-- 2. Synchronized Sliding 2D Spectrogram (Waterfall) -->
+    <section class="card spectrogram-card">
+      <div class="card-header">
+        <h2>🌊 2. Скользящая 2D Спектрограмма (Синхронизирована с верхними дорожками)</h2>
+        <p class="subtitle">Спектральная плотность энергии во времени | Линия воспроизведения синхронна по X = 95px</p>
+      </div>
+      <div class="canvas-wrapper">
+        <canvas id="cqtCanvas" height="180"></canvas>
+      </div>
+    </section>
+
+    <!-- 3. Synchronized Spectral Flux Novelty Curves -->
+    <section class="card novelty-card">
+      <div class="card-header">
+        <h2>📈 3. Скользящие Кривые Новизны Spectral Flux (Глобальная + 4 Поддиапазона)</h2>
+        <p class="subtitle">🌐 Глобальная кривая всего диапазона + 4 логарифмические подполосы | Мгновенный темп изменения энергии ReLU</p>
+      </div>
+      <div class="canvas-wrapper">
+        <canvas id="noveltyCanvas" height="200"></canvas>
+      </div>
+    </section>
+
+    <!-- ⚡ DYNAMIC LIVE FOURIER SPECTRUM PANEL (512 BINS CONTINUOUS CURVE) -->
+    <section class="card fourier-panel">
+      <div class="card-header" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
+        <div>
+          <h2>⚡ 4. Мгновенное Преобразование Фурье (FFT / STFT Срез Кадра)</h2>
+          <p class="subtitle">Быстрое преобразование Фурье: 512 частотных гармоник (0 Гц — 11 025 Гц) | Непрерывная огибающая спектра</p>
+        </div>
+        
+        <!-- View Mode Switcher -->
+        <div class="view-mode-tabs">
+          <button class="mode-tab-btn active" id="tabModeCurve" data-mode="curve">🌊 Непрерывная огибающая + 512 бинов</button>
+          <button class="mode-tab-btn" id="tabModeBars" data-mode="bars">📊 512 тонких столбиков</button>
+          <button class="mode-tab-btn" id="tabModeCqt" data-mode="cqt">🎹 Музыкальный CQT (84 ноты)</button>
+        </div>
+      </div>
+
+      <div class="canvas-wrapper">
+        <canvas id="sliceCanvas" height="230"></canvas>
+        
+        <!-- Frequency Axis Ruler (Hz) -->
+        <div class="fft-axis-labels">
+          <span class="fft-axis-label bass">32 Гц (C1)</span>
+          <span class="fft-axis-label bass">65 Гц</span>
+          <span class="fft-axis-label bass">🔴 130 Гц (BASS)</span>
+          <span class="fft-axis-label tenor">262 Гц (C4)</span>
+          <span class="fft-axis-label tenor">🟡 520 Гц (TENOR)</span>
+          <span class="fft-axis-label alto">1 кГц</span>
+          <span class="fft-axis-label alto">🟢 2 кГц (ALTO)</span>
+          <span class="fft-axis-label soprano">4 кГц</span>
+          <span class="fft-axis-label soprano">8 кГц</span>
+          <span class="fft-axis-label soprano">🔵 11 кГц (SOPRANO)</span>
+        </div>
+      </div>
+
+      <!-- Real-time Dominant Harmonic Peak HUD -->
+      <div class="dominant-peaks-hud">
+        <span id="dominantPeakText">🎯 Фурье-анализ: частотный спектр готов к воспроизведению</span>
+        <span id="fftFpsTag" class="badge">⚡ 60 FPS FFT</span>
+      </div>
+
+      <!-- Global + 4 Multi-Band Onset Status Indicators -->
+      <div class="multiband-indicators-grid">
+        <div class="onset-indicator-box band-global" id="indBandGlobal">
+          <span class="indicator-dot"></span>
+          <span class="indicator-text">🌐 Весь диапазон</span>
+        </div>
+        <div class="onset-indicator-box band-0" id="indBand0">
+          <span class="indicator-dot"></span>
+          <span class="indicator-text">🔴 Bass (32 — 130 Гц)</span>
+        </div>
+        <div class="onset-indicator-box band-1" id="indBand1">
+          <span class="indicator-dot"></span>
+          <span class="indicator-text">🟡 Tenor (130 — 520 Гц)</span>
+        </div>
+        <div class="onset-indicator-box band-2" id="indBand2">
+          <span class="indicator-dot"></span>
+          <span class="indicator-text">🟢 Alto (520 — 2 000 Гц)</span>
+        </div>
+        <div class="onset-indicator-box band-3" id="indBand3">
+          <span class="indicator-dot"></span>
+          <span class="indicator-text">🔵 Soprano (2 000 — 11 025 Гц)</span>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="math_app.js"></script>
+</body>
+</html>
